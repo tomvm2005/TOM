@@ -320,11 +320,10 @@ aside{display:grid;gap:16px}
           <summary>Geluid instellen</summary>
           <div class="sliders">
             <label><span>Video tijdens opnemen <b id="v1">20%</b></span><input type="range" id="recVol" min="0" max="100" value="20"></label>
-            <label><span>Video bij afspelen <b id="v2">35%</b></span><input type="range" id="playVol" min="0" max="100" value="35"></label>
             <label><span>Jouw stem bij afspelen <b id="v3">100%</b></span><input type="range" id="voiceVol" min="0" max="250" value="100"></label>
           </div>
         </details>
-        <p class="tip">Zet een koptelefoon op, dan neemt de microfoon het geluid van de video niet mee.</p>
+        <p class="tip">Zet een koptelefoon op, dan neemt de microfoon het geluid van de video niet mee. Bij terugkijken hoor je alleen jouw stem.</p>
       </div>
     </div>
 
@@ -452,9 +451,9 @@ async function makeYouTube(info, host, emit){
   const div=document.createElement("div"); host.appendChild(div);
   return new Promise((res,rej)=>{
     let p;
-    p = new YT.Player(div,{ videoId:info.id, playerVars:{rel:0,playsinline:1,modestbranding:1,start:Math.floor(info.t||0)},
+    p = new YT.Player(div,{ videoId:info.id, playerVars:{rel:0,playsinline:1,modestbranding:1,cc_load_policy:0,iv_load_policy:3,start:Math.floor(info.t||0)},
       events:{
-        onReady:()=>res(api),
+        onReady:()=>{ try{ p.unloadModule("captions"); p.unloadModule("cc"); }catch{} res(api); },
         onStateChange:e=>emit(e.data===1?"playing":e.data===0?"ended":"paused"),
         onError:e=>{ const c=e.data; const msg = c===101||c===150 ? "De eigenaar van deze YouTube-video staat afspelen op andere sites niet toe. Kies een andere video, of upload hem zelf."
           : c===153 ? "YouTube weigert de video omdat de pagina niet via een webadres geopend is. Open Stemmenstudio via de online link."
@@ -481,6 +480,7 @@ async function makeVimeo(info, host, emit){
   try { await p.ready(); dur=await p.getDuration(); title=await p.getVideoTitle().catch(()=>title); }
   catch(e){ throw new Error("Deze Vimeo-video kan niet ingesloten worden. Hij is privé of de maker staat het niet toe."); }
   div.querySelector("iframe")?.setAttribute("style","width:100%;height:100%");
+  p.disableTextTrack().catch(()=>{});
   return { kind:"vimeo", canExport:false,
     play:()=>p.play().catch(()=>{}), pause:()=>p.pause().catch(()=>{}), seek:s=>{ clk.set(s); p.setCurrentTime(s).catch(()=>{}); },
     time:()=>clk.now(), duration:()=>dur, setVolume:v=>p.setVolume(v/100).catch(()=>{}), destroy:()=>p.destroy().catch(()=>{}),
@@ -500,6 +500,7 @@ function makeFile(info, host, emit){
       rej(new Error(info.blob ? "Dit videobestand kan je browser niet afspelen. Probeer een .mp4-bestand." : "Op deze link staat geen video die de browser kan afspelen. Gebruik een directe link naar een videobestand (eindigt meestal op .mp4), of download de video en upload hem hier."));
     });
     v.src=url; host.appendChild(v);
+    const noSubs=()=>[...v.textTracks].forEach(t=>t.mode="disabled"); noSubs(); v.textTracks.addEventListener?.("addtrack",noSubs);
     const gain = { node:null };
     const api = { kind:"file", el:v, canExport:true, gain,
       play:()=>v.play().catch(()=>{}), pause:()=>v.pause(), seek:s=>{ v.currentTime=s; }, time:()=>v.currentTime,
@@ -682,7 +683,7 @@ async function playTake(take,{rate=false,queue=null}={}){
   try { await decoded(take); } catch { return showErr("Deze opname kan niet meer afgespeeld worden."); }
   S.playing=take; take.rateAfter=rate; S.queue=queue||[]; S.mode="playing";
   S.voiceGain.gain.value=+$("voiceVol").value/100;
-  S.src.setVolume(+$("playVol").value); S.src.seek(take.start); S.src.play();
+  S.src.setVolume(0); S.src.seek(take.start) /* terugkijken en exporteren: alleen jouw stem, nooit het geluid van de originele video */; S.src.play();
   refreshButtons(); renderTakes();
 }
 function startVoice(){
@@ -869,10 +870,9 @@ document.querySelectorAll("#lens button").forEach(b=>b.onclick=()=>{
   S.clipId=null; if (S.src) setClipStart(S.clipStart); renderLens(); toast("Clips duren nu "+fmtS(CLIP)+" minuten.");
 });
 $("resetScores").onclick=()=>{ S.players.forEach(p=>p.pts=0); savePlayers(); renderPlayers(); toast("Alle scores staan weer op nul."); };
-[["recVol","v1"],["playVol","v2"],["voiceVol","v3"]].forEach(([i,o])=>{ $(i).value=LS.get("ss."+i,$(i).value); $(o).textContent=$(i).value+"%";
+[["recVol","v1"],["voiceVol","v3"]].forEach(([i,o])=>{ $(i).value=LS.get("ss."+i,$(i).value); $(o).textContent=$(i).value+"%";
   $(i).oninput=()=>{ $(o).textContent=$(i).value+"%"; LS.set("ss."+i,$(i).value);
     if (i==="recVol"&&S.mode==="recording") S.src.setVolume(+$(i).value);
-    if (i==="playVol"&&S.mode==="playing") S.src.setVolume(+$(i).value);
     if (i==="voiceVol"&&S.voiceGain) S.voiceGain.gain.value=+$(i).value/100; }; });
 $("addPlayer").addEventListener("submit",e=>{ e.preventDefault(); const n=$("pname").value.trim(); if (!n) return;
   if (S.players.length===1&&S.players[0].name==="Speler 1"&&!S.players[0].pts) S.players=[];
