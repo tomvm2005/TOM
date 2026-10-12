@@ -30,15 +30,15 @@ create policy "eigen takes" on public.ss_takes for all
 insert into storage.buckets (id, name, public) values ('takes', 'takes', false)
   on conflict (id) do nothing;
 
-drop policy if exists "eigen opnames lezen" on storage.objects;
-create policy "eigen opnames lezen" on storage.objects for select
+drop policy if exists "ss eigen opnames lezen" on storage.objects;
+create policy "ss eigen opnames lezen" on storage.objects for select
   using (bucket_id = 'takes' and (storage.foldername(name))[1] = auth.uid()::text);
-drop policy if exists "eigen opnames toevoegen" on storage.objects;
-create policy "eigen opnames toevoegen" on storage.objects for insert
+drop policy if exists "ss eigen opnames toevoegen" on storage.objects;
+create policy "ss eigen opnames toevoegen" on storage.objects for insert
   with check (bucket_id = 'takes' and (storage.foldername(name))[1] = auth.uid()::text);
-drop policy if exists "eigen opnames wijzigen" on storage.objects;
-create policy "eigen opnames wijzigen" on storage.objects for update
+drop policy if exists "ss eigen opnames wijzigen" on storage.objects;
+create policy "ss eigen opnames wijzigen" on storage.objects for update
   using (bucket_id = 'takes' and (storage.foldername(name))[1] = auth.uid()::text);
-drop policy if exists "eigen opnames verwijderen" on storage.objects;
-create policy "eigen opnames verwijderen" on storage.objects for delete
+drop policy if exists "ss eigen opnames verwijderen" on storage.objects;
+create policy "ss eigen opnames verwijderen" on storage.objects for delete
   using (bucket_id = 'takes' and (storage.foldername(name))[1] = auth.uid()::text);

@@ -42,6 +42,7 @@ const errors = [];
 const FAKE = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"];
 async function open(browser, { viewport = { width: 1280, height: 900 }, init } = {}) {
   const ctx = await browser.newContext({ viewport, permissions: ["microphone"] });
+  await ctx.addInitScript(() => { window.SS_CONFIG = { url: "", anonKey: "" }; }); // standaard zonder accounts (geen echte Supabase in de test)
   if (init) await ctx.addInitScript(init);
   const page = await ctx.newPage();
   page.on("pageerror", e => errors.push(String(e)));
