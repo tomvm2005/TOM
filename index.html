@@ -309,6 +309,8 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 .confetti i{position:absolute;top:-12px;width:9px;height:14px;border-radius:2px;animation:fall 1.4s cubic-bezier(.25,.6,.4,1) forwards}
 @keyframes fall{to{transform:translate(var(--dx),105vh) rotate(var(--r));opacity:.2}}
 .player.locked .x,.player.locked .nm{pointer-events:none}
+/* Namen die met "..." afgekapt kunnen worden: ruimte rondom de letters, zodat een J of g niet half wegvalt */
+.player .nm,.take .t,.clip .nm,.podium .nm,.nowturn b{line-height:1.35;padding:.1em .12em .18em;margin:-.1em -.12em -.18em}
 .track.dragging .win{transition:box-shadow .2s}
 /* Telefoon: beurt en scores blijven bovenin in beeld */
 .mobibar{display:none}

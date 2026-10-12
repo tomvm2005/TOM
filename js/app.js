@@ -220,7 +220,10 @@ async function loadSource(info, opts={}){
   } catch(e){
     if (seq!==loadSeq) return;
     host.innerHTML=""; $("empty").firstElementChild.innerHTML=EMPTY_HTML;
-    return showErr(e.message==="timeout"||e.message==="script" ? "De videospeler kon niet geladen worden. Controleer je internetverbinding." : e.message);
+    if (e.message!=="timeout" && e.message!=="script") return showErr(e.message);
+    const online = location.protocol==="https:" || location.hostname==="localhost";
+    return showErr(online ? "De videospeler van "+(info.kind==="vimeo"?"Vimeo":"YouTube")+" kon niet geladen worden. Controleer je internetverbinding, of upload de video zelf."
+      : "YouTube en Vimeo werken hier niet, omdat Stemmenstudio niet via de online link geopend is (bijvoorbeeld als los bestand of in een voorbeeld). Upload de video zelf met Upload video, of speel via de online link.");
   }
   if (seq!==loadSeq){ src.destroy(); return; }
   S.src = src; $("empty").hidden=true;
