@@ -9,7 +9,7 @@ Het voice-overspel voor vrienden en familie. Kies een video (YouTube, Vimeo, dir
 ## Zo speel je
 1. Start een partij: vul de namen in en kies het aantal rondes (1, 3, 5 of vrij spelen) en de cliplengte.
 2. Kies een video (de video speelt met geluid, en klikken op de video zelf doet niets). Het spel kiest zelf een stuk dat nog niet gespeeld is (rood gearceerd = al gespeeld); met Nieuwe clip of door te slepen kies je een ander stuk.
-3. Bekijk de clip (met geluid; je kan pauzeren, ook door op het beeld te klikken). Pas daarna kan je opnemen. Linksonder in het beeld zie je hoe lang de video duurt; met het zwarte lijntje spoel je door de video. Bij een YouTube-reclame klik je rechtsonder in het beeld op Overslaan.
+3. Bekijk de clip (met geluid; je kan pauzeren, ook door op het beeld te klikken). Pas daarna kan je opnemen. Een klik op het beeld speelt de clip af en stopt aan het eind. Linksonder in het beeld zie je hoe ver je in de clip bent en hoe lang de video duurt; met het zwarte lijntje spoel je binnen de clip. Bij een YouTube-reclame klik je rechtsonder in het beeld op Overslaan.
 4. Opnemen (spatiebalk): na 3, 2, 1 praat je over de video heen, zonder geluid van de video. Je kan pauzeren; de pauze zit niet in de opname. Dobbel eventueel een gekke opdracht, of praat gewoon vrij.
 5. Terugkijken: je hoort alleen je eigen stem, ondertiteling staat uit. De groep geeft 1 tot 5 punten (of toets 1 t/m 5), daarna is de volgende aan de beurt.
 6. Na de laatste ronde volgt de uitslag. Bij gelijke stand delen spelers de winst.

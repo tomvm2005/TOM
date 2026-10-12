@@ -271,13 +271,14 @@ function renderTrack(){
   if (!d) return;
   for (const [a,b] of E.usedRanges(S.clips, S.srcKey)){ const u=document.createElement("div"); u.className="used"; u.style.left=(a/d*100)+"%"; u.style.width=(Math.min(b,d)-a)/d*100+"%"; u.title="Al gespeeld"; tr.appendChild(u); }
   const w=document.createElement("div"); w.className="win"; w.style.left=(S.clipStart/d*100)+"%"; w.style.width=((clipEnd()-S.clipStart)/d*100)+"%"; w.textContent = d>CLIP*2.5 ? fmtS(CLIP) : ""; tr.appendChild(w);
-  const h=document.createElement("div"); h.className="head"; h.id="phead"; h.title="Sleep om door de video te spoelen"; tr.appendChild(h);
+  const h=document.createElement("div"); h.className="head"; h.id="phead"; h.title="Sleep om door de clip te spoelen"; tr.appendChild(h);
+  paintClock();
 }
 (() => {
   const tr=$("track"); let drag=null;
   const at = e => { const r=tr.getBoundingClientRect(); return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*dur(); };
-  // Het zwarte lijntje is de plek in de video: verslepen spoelt de video (vrij als er niets loopt, binnen de clip tijdens bekijken).
-  const seekTo = t => { if (S.mode==="preview") t=Math.max(S.clipStart,Math.min(t,clipEnd()-.1)); S.scrub=t; S.src.seek(t); };
+  // Het zwarte lijntje is de plek in de clip: verslepen spoelt binnen de clip. Een ander stuk kiezen doe je met het blauwe blok.
+  const seekTo = t => { t=Math.max(S.clipStart,Math.min(t,clipEnd()-.1)); S.scrub=t; S.src.seek(t); };
   tr.addEventListener("pointerdown",e=>{
     if (!S.src || !dur()) return;
     if (e.target.closest(".head") && canSeek()){
@@ -426,10 +427,12 @@ function grabThumb(){
 }
 
 // ---------- Bekijken en afspelen ----------
-function startPreview(){
+function startPreview(fromHere=false){
   if (!S.src||S.mode!=="idle") return;
   hideErr(); closeRate(); S.mode="preview"; S.watched.add(clipKey());
-  S.src.setVolume(watchVol()); S.src.seek(S.clipStart); S.src.play(); refreshButtons();
+  // Vanaf het begin van de clip, of (klik op het beeld) vanaf het zwarte lijntje als dat midden in de clip staat.
+  const t=S.src.time(), at = fromHere && t>S.clipStart+.3 && t<clipEnd()-.5 ? t : S.clipStart;
+  S.src.setVolume(watchVol()); S.src.seek(at); S.src.play(); refreshButtons();
 }
 function stopPreview(){ if (S.mode!=="preview") return; S.src.pause(); S.mode="idle"; S.src.seek(S.clipStart); refreshButtons(); }
 
@@ -773,7 +776,7 @@ $("stopBtn").onclick=stopEverything;
 $("playLast").onclick=()=>{ const t=clipTakes()[0]; if (t) playTake(t,{rate:t.score==null}); };
 $("showAll").onclick=()=>{ const l=clipTakes().reverse(); if (l.length) playTake(l[0],{queue:l.slice(1)}); };
 $("randClip").onclick=()=>newClip(true);
-$("preview").onclick=startPreview;
+$("preview").onclick=()=>startPreview();
 $("pauseBtn").onclick=togglePause;
 function togglePause(){
   const m=S.mode; if (!S.src || S.exporting || !(m==="recording"||m==="preview"||m==="playing")) return;
@@ -787,8 +790,7 @@ function screenClick(){
   const m=S.mode;
   if (m==="recording"||m==="preview"||m==="playing"){ togglePause(); flash(S.paused?"pause":"play"); return; }
   if (m!=="idle") return;
-  if (S.vstate==="playing"){ S.src.pause(); flash("pause"); }
-  else { S.src.setVolume(watchVol()); S.src.play(); flash("play"); }
+  startPreview(true); flash("play"); // afspelen = de clip bekijken: hij stopt aan het eind van de clip en begint daarna weer vooraan
 }
 function flash(icon){ const f=$("flash"); f.innerHTML=ICON[icon]; f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
 $("shield").addEventListener("click",screenClick);
@@ -848,8 +850,8 @@ function clipPos(now){
 const ICON={ play:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>',
   pause:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/></svg>' };
 const setText=(id,t)=>{ const el=$(id); if (el.textContent!==t) el.textContent=t; };
-function drawClock(){
-  requestAnimationFrame(drawClock);
+function drawClock(){ requestAnimationFrame(drawClock); paintClock(); }
+function paintClock(){
   $("vctl").hidden=!S.src; if (!S.src) return;
   const now=S.scrub??S.src.time(), d=dur(), {rel,len}=clipPos(now), pct=(rel/len*100).toFixed(2)+"%", m=S.mode;
   setText("tc",fmt(rel)+" / "+fmtS(len));
@@ -858,7 +860,7 @@ function drawClock(){
   $("clipbar").classList.toggle("rec",m==="recording"||m==="countdown");
   const h=$("phead"); if (h&&d) h.style.left=(Math.min(now,d)/d*100)+"%";
   $("track").classList.toggle("noseek",!canSeek());
-  setText("vTime",fmtS(now)+" / "+(d?fmtS(d):"–"));
+  setText("vTime",fmtS(rel)+" / "+fmtS(len)); setText("vDur",d?"video "+fmtS(d):"");
   const playing=S.vstate==="playing"&&!S.paused, b=$("vPlay");
   const st=playing?"pause":"play";
   if (b.dataset.st!==st){ b.dataset.st=st; b.innerHTML=ICON[st]; b.setAttribute("aria-label",playing?"Pauzeren":"Afspelen"); }

@@ -264,25 +264,37 @@ try {
     await S(page, () => document.getElementById("shield").classList.remove("ytskip"));
     check("video heeft geen eigen knoppen meer", await S(page, () => window.__ss.src.el.controls === false));
 
-    // in het beeld: hoe lang de video duurt, en klikken = afspelen/pauzeren zoals YouTube
-    check("in het beeld staat hoe lang de video duurt", /\/ 3:20$/.test(await page.textContent("#vTime")) && await page.isVisible("#vctl"), await page.textContent("#vTime"));
+    // in het beeld: clipttijd en hoe lang de video duurt; klikken = de clip bekijken en pauzeren, zoals YouTube
+    await sleep(150);
+    check("in het beeld staan de cliptijd en hoe lang de video duurt", await page.textContent("#vTime") === "0:00 / 0:30" && await page.textContent("#vDur") === "video 3:20" && await page.isVisible("#vctl"), (await page.textContent("#vTime")) + " · " + (await page.textContent("#vDur")));
     await page.click("#shield"); await sleep(400);
-    check("klik op het beeld speelt de video af", await S(page, () => !window.__ss.src.el.paused) && await page.getAttribute("#vPlay", "data-st") === "pause");
+    check("klik op het beeld speelt de clip af (telt als bekeken)", await mode(page) === "preview" && await S(page, () => !window.__ss.src.el.paused) && await page.getAttribute("#vPlay", "data-st") === "pause");
     await page.click("#shield"); await sleep(250);
-    check("nog een klik op het beeld pauzeert", await S(page, () => window.__ss.src.el.paused) && await page.getAttribute("#vPlay", "data-st") === "play");
+    const pz = await S(page, () => ({ el: window.__ss.src.el.paused, s: window.__ss.paused, m: window.__ss.mode, st: document.getElementById("vPlay").dataset.st }));
+    check("nog een klik op het beeld pauzeert", pz.el && pz.s && pz.st === "play", JSON.stringify(pz));
     await page.click("#vPlay"); await sleep(300);
     check("de knop linksonder in het beeld doet hetzelfde", await S(page, () => !window.__ss.src.el.paused));
-    await page.click("#vPlay"); await sleep(200);
-    // zwarte lijntje verslepen = door de video spoelen
+    await page.click("#stopBtn"); await sleep(200);
+    // zwarte lijntje verslepen = spoelen binnen de clip
     const clip0 = await S(page, () => window.__ss.clipStart);
     await page.locator("#track").scrollIntoViewIfNeeded();
-    const hb = await page.locator("#phead").boundingBox(), tb = await page.locator("#track").boundingBox();
-    await page.mouse.move(hb.x + hb.width / 2, tb.y + tb.height / 2); await page.mouse.down();
-    await page.mouse.move(tb.x + tb.width * 0.6, tb.y + tb.height / 2, { steps: 5 });
-    await page.mouse.move(tb.x + tb.width * 0.75, tb.y + tb.height / 2, { steps: 5 }); await page.mouse.up(); await sleep(400);
-    const pos = await S(page, () => window.__ss.src.time());
-    check("het zwarte lijntje verslepen spoelt de video", Math.abs(pos - 150) < 4 && await S(page, () => window.__ss.clipStart) === clip0, `video op ${pos.toFixed(1)} s (verwacht ~150), clip blijft op ${clip0} s`);
-    check("de videotijd in het beeld loopt mee", /^2:3\d \//.test(await page.textContent("#vTime")), await page.textContent("#vTime"));
+    const tb = await page.locator("#track").boundingBox();
+    const drag = async toSec => { const hb = await page.locator("#phead").boundingBox(); await page.mouse.move(hb.x + hb.width / 2, tb.y + tb.height / 2); await page.mouse.down();
+      await page.mouse.move(tb.x + tb.width * toSec / 200, tb.y + tb.height / 2, { steps: 6 }); await page.mouse.up(); await sleep(400); return S(page, () => window.__ss.src.time()); };
+    let pos = await drag(clip0 + 15);
+    check("het zwarte lijntje verslepen spoelt binnen de clip", Math.abs(pos - (clip0 + 15)) < 2 && await S(page, () => window.__ss.clipStart) === clip0, `video op ${pos.toFixed(1)} s, verwacht ~${clip0 + 15} s`);
+    check("de tijd in het beeld loopt gelijk met de clip", /^0:1[3-7] \/ 0:30$/.test(await page.textContent("#vTime")) && (await page.textContent("#tc")).startsWith("0:1"), (await page.textContent("#vTime")) + " · " + (await page.textContent("#tc")));
+    pos = await drag(clip0 + 100);
+    check("het lijntje gaat niet voorbij het einde van de clip", pos <= clip0 + 30 && pos > clip0 + 28, `video op ${pos.toFixed(1)} s, clip tot ${clip0 + 30} s`);
+    pos = await drag(clip0 + 27);
+    await page.click("#shield");
+    await page.waitForFunction(() => window.__ss.mode === "idle", null, { timeout: 8000 });
+    const after = await S(page, () => ({ t: window.__ss.src.time(), p: window.__ss.src.el.paused }));
+    check("aan het eind van de clip stopt het beeld", after.p && Math.abs(after.t - clip0) < 0.5, `gestopt op ${after.t.toFixed(1)} s (clip begint op ${clip0} s)`);
+    await page.click("#shield"); await sleep(500);
+    const again = await S(page, () => window.__ss.src.time());
+    check("opnieuw afspelen begint de clip weer vooraan", again >= clip0 && again < clip0 + 2, `op ${again.toFixed(1)} s`);
+    await page.click("#stopBtn"); await sleep(200);
     check("tijdens opnemen staat het geluid standaard uit", await page.inputValue("#recVol") === "0");
 
     // pauzeren tijdens kijken

@@ -325,6 +325,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 .vctl button{width:32px;height:32px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:14px;line-height:1;display:grid;place-items:center;box-shadow:none;transform:none}
 .vctl button:hover{background:rgba(255,255,255,.34);transform:none}
 .vctl button:disabled{opacity:.45}
+.vctl small{font:500 11px var(--f-mono);opacity:.7;padding-left:8px;border-left:1px solid rgba(255,255,255,.3)}
 .flash{position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;background:rgba(11,26,46,.55);color:#fff;font-size:30px;display:grid;place-items:center;z-index:3;pointer-events:none;opacity:0}
 .flash.go{animation:flash .6s var(--ease) both}
 .flash svg{width:34px;height:34px}
@@ -380,7 +381,8 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         <div class="flash" id="flash" aria-hidden="true"></div>
         <div class="vctl" id="vctl" hidden>
           <button type="button" id="vPlay" aria-label="Afspelen"></button>
-          <span id="vTime" title="Waar je in de video bent / hoe lang de hele video duurt">0:00 / 0:00</span>
+          <span id="vTime" title="Hoe ver je in de clip bent / hoe lang de clip is">0:00 / 0:00</span>
+          <small id="vDur" title="Hoe lang de hele video duurt"></small>
         </div>
         <div class="empty" id="empty"><div><div class="orb"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><b>Kies een video om te beginnen</b>Plak hierboven een link of upload een video.
           <div class="steps"><span>1 · Bekijk de clip</span><span>2 · Spreek in</span><span>3 · Kijk terug en geef punten</span></div></div></div>
