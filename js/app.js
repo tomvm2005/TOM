@@ -21,7 +21,7 @@ const TIMING = {
   playerTimeout: 15000, // ms om de YouTube-speler te laden
   doubleClick: 450,     // ms: een tweede klik op Opnemen binnen deze tijd telt niet (geen per ongeluk gestopte opname)
 };
-const KEYS = { len: "ss.len", game: "ss.players", sound: "ss.sound", help: "ss.helpSeen", recVol: "ss.recVol", voiceVol: "ss.voiceVol" };
+const KEYS = { len: "ss.len", game: "ss.players", sound: "ss.sound", help: "ss.helpSeen", watchVol: "ss.watchVol", recVol: "ss.recVol2", voiceVol: "ss.voiceVol", captions: "ss.captions" };
 const FACES = [["🥱","1"],["🙂","2"],["😄","3"],["😂","4"],["🤣","5"]];
 const BIG_SCORE = 4; // vanaf zoveel punten: confetti
 const BUSY = new Set(["arming","countdown","recording","preview","playing"]);
@@ -36,6 +36,7 @@ let CLIP = R.clipLengths.includes(LS.get(KEYS.len)) ? LS.get(KEYS.len) : R.defau
 
 const S = {
   src:null, srcInfo:null, srcKey:null, clipStart:0, clipId:null, mode:"idle", // idle|arming|countdown|recording|preview|playing
+  paused:false, captions: LS.get(KEYS.captions,false)===true,
   stream:null, rec:null, chunks:[], t0:0, offset:null, recStart:0, recEnd:0, recPlayerId:null, challenge:null, currentChallenge:null,
   takes:[], clips:[], watched:new Set(), ctx:null, analyser:null, voiceGain:null, voiceSrc:null, voiceAt:null, lastResync:0,
   drift:[], playing:null, queue:[], rateTake:null, exporting:null, sound: LS.get(KEYS.sound, true) !== false,
@@ -139,9 +140,9 @@ async function makeYouTube(info, host, emit){
   const div=document.createElement("div"); host.appendChild(div);
   return new Promise((res,rej)=>{
     let p;
-    p = new YT.Player(div,{ videoId:info.id, playerVars:{rel:0,playsinline:1,modestbranding:1,cc_load_policy:0,iv_load_policy:3,start:Math.floor(info.t||0)},
+    p = new YT.Player(div,{ videoId:info.id, playerVars:{rel:0,playsinline:1,modestbranding:1,controls:0,disablekb:1,fs:0,cc_load_policy:S.captions?1:0,iv_load_policy:3,start:Math.floor(info.t||0)},
       events:{
-        onReady:()=>{ try{ p.unloadModule("captions"); p.unloadModule("cc"); }catch{} res(api); },
+        onReady:()=>{ if (!S.captions) try{ p.unloadModule("captions"); p.unloadModule("cc"); }catch{} res(api); },
         onStateChange:e=>emit(e.data===1?"playing":e.data===0?"ended":"paused"),
         onError:e=>{ const c=e.data; const msg = c===101||c===150 ? "De eigenaar van deze YouTube-video staat afspelen op andere sites niet toe. Kies een andere video, of upload hem zelf."
           : c===153 ? "YouTube weigert de video omdat de pagina niet via een webadres geopend is. Open Stemmenstudio via de online link."
@@ -150,6 +151,7 @@ async function makeYouTube(info, host, emit){
     const api = { kind:"yt", canExport:false,
       play:()=>p.playVideo(), pause:()=>p.pauseVideo(), seek:s=>p.seekTo(s,true), time:()=>p.getCurrentTime?.()||0,
       duration:()=>p.getDuration?.()||0, setVolume:v=>{ p.unMute(); p.setVolume(v); }, destroy:()=>{ try{p.destroy();}catch{} },
+      setCaptions:on=>{ try{ if (on) p.loadModule("captions"); else { p.unloadModule("captions"); p.unloadModule("cc"); } }catch{} },
       title:()=>p.getVideoData?.().title||"YouTube-video", thumb:"https://i.ytimg.com/vi/"+info.id+"/mqdefault.jpg" };
   });
 }
@@ -168,8 +170,9 @@ async function makeVimeo(info, host, emit){
   try { await p.ready(); dur=await p.getDuration(); title=await p.getVideoTitle().catch(()=>title); }
   catch { throw new Error("Deze Vimeo-video kan niet ingesloten worden. Hij is privé of de maker staat het niet toe."); }
   div.querySelector("iframe")?.setAttribute("style","width:100%;height:100%");
-  p.disableTextTrack().catch(()=>{});
+  if (!S.captions) p.disableTextTrack().catch(()=>{});
   return { kind:"vimeo", canExport:false,
+    setCaptions:on=>{ if (on) p.getTextTracks().then(t=>t[0]&&p.enableTextTrack(t[0].language,t[0].kind)).catch(()=>{}); else p.disableTextTrack().catch(()=>{}); },
     play:()=>p.play().catch(()=>{}), pause:()=>p.pause().catch(()=>{}), seek:s=>{ clk.set(s); p.setCurrentTime(s).catch(()=>{}); },
     time:()=>clk.now(), duration:()=>dur, setVolume:v=>p.setVolume(v/100).catch(()=>{}), destroy:()=>p.destroy().catch(()=>{}),
     title:()=>title, thumb:"" };
@@ -177,7 +180,7 @@ async function makeVimeo(info, host, emit){
 
 function makeFile(info, host, emit){
   return new Promise((res,rej)=>{
-    const v=document.createElement("video"); v.playsInline=true; v.preload="auto"; v.controls=true;
+    const v=document.createElement("video"); v.playsInline=true; v.preload="auto"; v.controls=false; // geen eigen knoppen: alles loopt via Stemmenstudio
     let tried=false; const url = info.blob ? URL.createObjectURL(info.blob) : info.url;
     if (!info.blob) v.crossOrigin="anonymous";
     v.addEventListener("playing",()=>emit("playing")); v.addEventListener("pause",()=>emit("paused"));
@@ -189,9 +192,9 @@ function makeFile(info, host, emit){
       emit("error",msg); rej(new Error(msg));
     });
     v.src=url; host.appendChild(v);
-    const noSubs=()=>[...v.textTracks].forEach(t=>t.mode="disabled"); noSubs(); v.textTracks.addEventListener?.("addtrack",noSubs);
+    const applyCaps=()=>[...v.textTracks].forEach((t,i)=>{ t.mode=(S.captions&&i===0)?"showing":"disabled"; }); applyCaps(); v.textTracks.addEventListener?.("addtrack",applyCaps);
     const gain = { node:null };
-    const api = { kind:"file", el:v, canExport:true, gain,
+    const api = { kind:"file", el:v, canExport:true, gain, setCaptions:()=>applyCaps(),
       play:()=>v.play().catch(()=>{}), pause:()=>v.pause(), seek:s=>{ v.currentTime=s; }, time:()=>v.currentTime,
       duration:()=>isFinite(v.duration)?v.duration:0, setVolume:x=>{ if (gain.node) gain.node.gain.value=x/100; else v.volume=x/100; },
       destroy:()=>{ v.pause(); v.removeAttribute("src"); v.load(); if (info.blob) URL.revokeObjectURL(url); },
@@ -226,7 +229,7 @@ async function loadSource(info, opts={}){
       : "YouTube en Vimeo werken hier niet, omdat Stemmenstudio niet via de online link geopend is (bijvoorbeeld als los bestand of in een voorbeeld). Upload de video zelf met Upload video, of speel via de online link.");
   }
   if (seq!==loadSeq){ src.destroy(); return; }
-  S.src = src; $("empty").hidden=true;
+  S.src = src; $("empty").hidden=true; restoreVolume(); src.setCaptions?.(S.captions);
   S.srcInfo = info; S.srcKey = keyOf(info);
   if (info.kind==="file" && info.blob && !opts.fromLib) DB.put("files",{id:S.srcKey,blob:info.blob,name:info.name});
   await waitDuration();
@@ -331,6 +334,10 @@ function onState(st,msg){
     else if (S.mode==="playing") finishPlayback(false);
     showErr(msg); return;
   }
+  if (S.mode==="recording" && S.offset!==null && S.rec){ // de opname loopt precies zolang de video speelt: pauze of haperen houdt stem en beeld gelijk
+    if (st==="paused" && S.rec.state==="recording") S.rec.pause();
+    if (st==="playing" && S.rec.state==="paused") S.rec.resume();
+  }
   if (S.mode==="recording"){
     if (st==="playing" && S.offset===null){ S.offset=(performance.now()-S.t0)/1000; S.recStart=S.src.time(); }
     if (st==="ended") stopRecording();
@@ -372,7 +379,7 @@ function stopRecording(){
   if (S.mode==="arming"){ S.mode="idle"; refreshButtons(); return; }
   if (S.mode==="countdown"){ S.mode="idle"; $("overlay").innerHTML=""; S.rec.onstop=null; try{ S.rec.stop(); }catch{} refreshButtons(); return; }
   if (S.mode!=="recording") return;
-  S.recEnd=Math.min(S.src.time(), clipEnd()); S.src.pause(); S.mode="idle"; try{ S.rec.stop(); }catch{} refreshButtons(); sfx("done");
+  S.recEnd=Math.min(S.src.time(), clipEnd()); S.src.pause(); S.mode="idle"; try{ S.rec.stop(); }catch{} restoreVolume(); refreshButtons(); sfx("done");
 }
 async function saveTake(){
   const blob=new Blob(S.chunks,{type:S.rec.mimeType||"audio/webm"});
@@ -409,7 +416,7 @@ function grabThumb(){
 function startPreview(){
   if (!S.src||S.mode!=="idle") return;
   hideErr(); closeRate(); S.mode="preview"; S.watched.add(clipKey());
-  S.src.setVolume(100); S.src.seek(S.clipStart); S.src.play(); refreshButtons();
+  S.src.setVolume(watchVol()); S.src.seek(S.clipStart); S.src.play(); refreshButtons();
 }
 function stopPreview(){ if (S.mode!=="preview") return; S.src.pause(); S.mode="idle"; S.src.seek(S.clipStart); refreshButtons(); }
 
@@ -444,7 +451,7 @@ function checkSync(){
 }
 function finishPlayback(natural){
   if (S.mode!=="playing") return;
-  const t=S.playing; stopVoice(); S.src.pause(); S.mode="idle"; S.playing=null;
+  const t=S.playing; stopVoice(); S.src.pause(); S.mode="idle"; S.playing=null; restoreVolume();
   if (S.exporting) endExport(natural);
   refreshButtons(); renderTakes();
   if (natural && S.queue.length){ const next=S.queue.shift(); const q=S.queue; setTimeout(()=>playTake(next,{queue:q}),TIMING.nextTakeGap); return; }
@@ -555,7 +562,7 @@ function renderStart(){
   if (!$("startDlg").open) return;
   renderPlayerList($("startPlayers"), {inGame:false});
   seg($("roundSeg"), R.roundOptions, startRounds, roundLabel, r=>{ startRounds=r; renderStart(); });
-  seg($("lenSeg"), R.clipLengths, CLIP, fmtS, l=>{ setClipLen(l); renderStart(); });
+  seg($("lenSeg"), R.clipLengths, CLIP, lenLabel, l=>{ setClipLen(l); renderStart(); });
 }
 function openStart(){
   if (BUSY.has(S.mode)) stopEverything();
@@ -577,7 +584,7 @@ function openSettings(){
 }
 function renderSettings(){
   seg($("setRoundSeg"), R.roundOptions, G.rounds, roundLabel, r=>{ dispatch({type:"setRounds",rounds:r}); renderSettings(); });
-  seg($("setLenSeg"), R.clipLengths, CLIP, fmtS, l=>{ setClipLen(l); renderSettings(); });
+  seg($("setLenSeg"), R.clipLengths, CLIP, lenLabel, l=>{ setClipLen(l); renderSettings(); });
 }
 function openHelp(){ closeDialogs(); $("helpDlg").showModal(); }
 function closeDialogs(){ document.querySelectorAll("dialog[open]").forEach(d=>d.close()); }
@@ -666,7 +673,7 @@ function setClipLen(l, silent=false){
   if (S.mode!=="idle" || !R.clipLengths.includes(l)) return;
   CLIP=l; LS.set(KEYS.len,CLIP);
   S.clipId=null; if (S.src) setClipStart(S.clipStart); renderLens(); refreshButtons();
-  if (!silent) toast("Clips duren nu "+fmtS(CLIP)+" minuten.");
+  if (!silent) toast("Clips duren nu "+(CLIP<60?CLIP+" seconden":fmtS(CLIP)+" minuten")+".");
 }
 
 // ---------- Knoppen, hints en weergave ----------
@@ -678,9 +685,9 @@ function nextStep(){
   switch (S.mode){
     case "arming": return "🎙️ Microfoon aanzetten…";
     case "countdown": return `🎙️ ${who}, maak je klaar…`;
-    case "recording": return `🔴 ${who} neemt op. Druk op Stop opname (of spatie) om te stoppen.`;
-    case "preview": return "👀 Kijk goed: waar ga je zo overheen praten?";
-    case "playing": return S.exporting ? "🎬 De video wordt gemaakt. Laat de clip uitspelen." : "▶ Terugkijken…";
+    case "recording": return S.paused ? `⏸ Gepauzeerd. Druk op Verder om door te gaan, of op Stop opname.` : `🔴 ${who} neemt op. Druk op Pauze om even stil te zetten, of op Stop opname (spatie) om te stoppen.`;
+    case "preview": return S.paused ? "⏸ Gepauzeerd. Druk op Verder." : "👀 Kijk goed: waar ga je zo overheen praten?";
+    case "playing": return S.exporting ? "🎬 De video wordt gemaakt. Laat de clip uitspelen." : S.paused ? "⏸ Gepauzeerd. Druk op Verder." : "▶ Terugkijken…";
   }
   if (!S.src) return `👉 ${who} is aan de beurt. Plak eerst een videolink of upload een video.`;
   if (S.rateTake) return `😂 Geef ${S.rateTake.who} punten: hoe grappig was het? (1 t/m 5)`;
@@ -700,21 +707,23 @@ function refreshButtons(){
   rb.classList.toggle("blocked", !rec && !!why && !rb.disabled);
   rb.title = rec ? "Stop de opname (spatie)" : why || "Opnemen (spatie)";
   rb.classList.toggle("stop",rec); $("recLabel").textContent = m==="arming" ? "Even geduld…" : rec ? "Stop opname" : "Opnemen";
+  if (!busy || m==="arming" || m==="countdown") S.paused=false;
+  const pausable=(m==="recording"||m==="preview"||m==="playing")&&!S.exporting;
+  $("pauseBtn").disabled=!pausable; $("pauseLabel").textContent=S.paused?"▶ Verder":"⏸ Pauze"; $("pauseBtn").title=S.paused?"Ga verder (P)":"Zet de clip even stil (P)";
   $("playLast").disabled=busy||!S.src||!clipTakes().length;
   $("stopBtn").disabled=!busy||m==="arming";
   for (const id of ["randClip","preview","saveClip"]) $(id).disabled=!S.src||busy;
   $("preview").classList.toggle("btn-cue", !!S.src && !isWatched());
   $("showAll").disabled=busy;
   $("pname").disabled=busy; $("newGameBtn").disabled=rec||m==="arming"; $("endGameBtn").disabled=rec||m==="arming";
-  $("lamp").classList.toggle("on",m==="recording");
+  $("lamp").classList.toggle("on",m==="recording"&&!S.paused);
   $("screen").classList.toggle("rec",rec); $("screen").classList.toggle("play",m==="playing"||m==="preview");
   $("tag").hidden=!(m==="recording"||m==="playing"||m==="preview");
-  $("tag").textContent=S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
-  $("tag").classList.toggle("play",m!=="recording");
+  $("tag").textContent=S.paused?"⏸ PAUZE":S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
+  $("tag").classList.toggle("play",m!=="recording"); $("tag").classList.toggle("pause",S.paused);
   $("remain").hidden=!(rec||m==="playing"||m==="preview");
   $("tc").classList.toggle("live",m==="recording");
   $("track").style.opacity=busy?.6:1; renderLens();
-  if (S.src?.el) S.src.el.controls=!busy;
   $("players").querySelectorAll(".player").forEach(p=>p.classList.toggle("locked",busy));
   $("lib").querySelectorAll(".clip").forEach(b=>{ b.disabled=busy; });
   if (performance.now()>=hintHold){ const txt=nextStep(); if ($("hint").textContent!==txt) $("hint").textContent=txt; }
@@ -751,12 +760,24 @@ $("playLast").onclick=()=>{ const t=clipTakes()[0]; if (t) playTake(t,{rate:t.sc
 $("showAll").onclick=()=>{ const l=clipTakes().reverse(); if (l.length) playTake(l[0],{queue:l.slice(1)}); };
 $("randClip").onclick=()=>newClip(true);
 $("preview").onclick=startPreview;
+$("pauseBtn").onclick=togglePause;
+function togglePause(){
+  const m=S.mode; if (!S.src || S.exporting || !(m==="recording"||m==="preview"||m==="playing")) return;
+  S.paused=!S.paused;
+  if (S.paused) S.src.pause(); else S.src.play();
+  refreshButtons();
+}
+function renderCaptionsBtn(){ const b=$("ccBtn"); b.setAttribute("aria-pressed",S.captions); b.textContent="💬 Ondertiteling: "+(S.captions?"aan":"uit"); }
+$("ccBtn").onclick=()=>{ S.captions=!S.captions; LS.set(KEYS.captions,S.captions); S.src?.setCaptions?.(S.captions); renderCaptionsBtn();
+  toast(S.captions?"Ondertiteling aan (als de video ondertitels heeft). Lees ze voor, of praat er vrij overheen.":"Ondertiteling uit."); };
+renderCaptionsBtn();
 $("saveClip").onclick=async()=>{ await ensureClip(false); renderLib(); toast("Clip bewaard onder Bewaarde clips."); };
 $("dice").onclick=rollDice;
 function renderLens(){ document.querySelectorAll("#lens button").forEach(b=>{ const on=+b.dataset.len===CLIP; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on); b.disabled=S.mode!=="idle"; }); }
 document.querySelectorAll("#lens button").forEach(b=>b.onclick=()=>setClipLen(+b.dataset.len));
-[["recVol","v1"],["voiceVol","v3"]].forEach(([i,o])=>{ $(i).value=LS.get(KEYS[i],$(i).value); $(o).textContent=$(i).value+"%";
+[["watchVol","v0"],["recVol","v1"],["voiceVol","v3"]].forEach(([i,o])=>{ $(i).value=LS.get(KEYS[i],$(i).value); $(o).textContent=$(i).value+"%";
   $(i).oninput=()=>{ $(o).textContent=$(i).value+"%"; LS.set(KEYS[i],$(i).value);
+    if (i==="watchVol"&&S.src&&(S.mode==="idle"||S.mode==="preview")) S.src.setVolume(+$(i).value);
     if (i==="recVol"&&S.mode==="recording") S.src.setVolume(+$(i).value);
     if (i==="voiceVol"&&S.voiceGain) S.voiceGain.gain.value=+$(i).value/100; }; });
 const addInGame=()=>{ if (!BUSY.has(S.mode)) addPlayer($("pname")); };
@@ -768,6 +789,7 @@ document.addEventListener("keydown",e=>{
   if (e.code==="Space"){ if (e.target.closest("button:not(#recBtn)")) return; e.preventDefault(); if (e.repeat) return;
     if (S.mode==="playing"||S.mode==="preview") stopEverything(); else if (!$("recBtn").disabled) $("recBtn").click(); }
   else if (k==="w"&&!$("preview").disabled) $("preview").click();
+  else if (k==="p"&&!$("pauseBtn").disabled) $("pauseBtn").click();
   else if (k==="p"&&!$("playLast").disabled) $("playLast").click();
   else if (k==="n"&&!$("randClip").disabled) $("randClip").click();
   else if (k==="d") rollDice();
@@ -806,6 +828,9 @@ function confetti(n){
 
 // ---------- Hulpjes ----------
 function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
+const watchVol = () => +$("watchVol").value;
+function restoreVolume(){ try { S.src?.setVolume(watchVol()); } catch {} } // na opnemen of terugkijken hoor je de video weer gewoon
+const lenLabel = l => l<60 ? l+" sec" : fmtS(l);
 function nextFrame(){ return new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))); }
 function fmt(s){ const m=Math.floor(s/60),r=s-m*60; return m+":"+r.toFixed(1).padStart(4,"0"); }
 function fmtS(s){ s=Math.max(0,Math.round(s)); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), r=s%60; return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(r).padStart(2,"0"); }

@@ -1,6 +1,6 @@
 # Stemmenstudio
 
-Het voice-overspel voor vrienden en familie. Kies een video (YouTube, Vimeo, directe videolink of eigen upload), bekijk een clip van 1:00, 1:30 of 2:00, en spreek er om de beurt je eigen voice-over overheen. De groep geeft punten; na de laatste ronde zie je wie er wint.
+Het voice-overspel voor vrienden en familie. Kies een video (YouTube, Vimeo, directe videolink of eigen upload), bekijk een clip van 10 seconden tot 2 minuten, en spreek er om de beurt je eigen voice-over overheen. De groep geeft punten; na de laatste ronde zie je wie er wint.
 
 ## Starten
 - Online: https://tomvm2005.github.io/TOM/ (GitHub Pages, branch `main`). YouTube en Vimeo werken alleen via een https-adres.
@@ -8,13 +8,15 @@ Het voice-overspel voor vrienden en familie. Kies een video (YouTube, Vimeo, dir
 
 ## Zo speel je
 1. Start een partij: vul de namen in en kies het aantal rondes (1, 3, 5 of vrij spelen) en de cliplengte.
-2. Kies een video. Het spel kiest zelf een stuk dat nog niet gespeeld is (rood gearceerd = al gespeeld); met Nieuwe clip of door te slepen kies je een ander stuk.
-3. Bekijk de clip. Pas daarna kan je opnemen.
-4. Opnemen (spatiebalk): na 3, 2, 1 praat je over de video heen. Dobbel eventueel een gekke opdracht.
+2. Kies een video (de video speelt met geluid, en klikken op de video zelf doet niets). Het spel kiest zelf een stuk dat nog niet gespeeld is (rood gearceerd = al gespeeld); met Nieuwe clip of door te slepen kies je een ander stuk.
+3. Bekijk de clip (met geluid; je kan pauzeren). Pas daarna kan je opnemen.
+4. Opnemen (spatiebalk): na 3, 2, 1 praat je over de video heen, zonder geluid van de video. Je kan pauzeren; de pauze zit niet in de opname. Dobbel eventueel een gekke opdracht, of praat gewoon vrij.
 5. Terugkijken: je hoort alleen je eigen stem, ondertiteling staat uit. De groep geeft 1 tot 5 punten (of toets 1 t/m 5), daarna is de volgende aan de beurt.
 6. Na de laatste ronde volgt de uitslag. Bij gelijke stand delen spelers de winst.
 
-Sneltoetsen: spatie opnemen/stoppen, W bekijk clip, N nieuwe clip, D opdracht, P laatste take, Esc stoppen, 1 t/m 5 punten.
+Ondertiteling staat standaard uit; met de knop onder de video zet je hem aan (alleen als de video ondertitels heeft), bijvoorbeeld om ze voor te lezen.
+
+Sneltoetsen: spatie opnemen/stoppen, W bekijk clip, P pauze (of laatste take als er niets speelt), N nieuwe clip, D opdracht, Esc stoppen, 1 t/m 5 punten.
 
 ## Aannames
 - Een partij heeft standaard 3 rondes; elke speler doet één take per ronde.

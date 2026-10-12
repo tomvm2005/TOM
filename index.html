@@ -312,6 +312,13 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 /* Namen die met "..." afgekapt kunnen worden: ruimte rondom de letters, zodat een J of g niet half wegvalt */
 .player .nm,.take .t,.clip .nm,.podium .nm,.nowturn b{line-height:1.35;padding:.1em .12em .18em;margin:-.1em -.12em -.18em}
 .track.dragging .win{transition:box-shadow .2s}
+/* De video is alleen om naar te kijken: geen klikken op YouTube-knoppen (abonneren, kanaal, enzovoort) */
+#stage{pointer-events:none}
+.vidbar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between;padding:0 4px}
+.vidbar .vol{display:flex;align-items:center;gap:10px;flex:1 1 200px;max-width:340px;font-size:14px;color:var(--muted)}
+.vidbar .vol b{font:500 13px var(--f-mono);color:var(--cue-ink);min-width:3.2em;text-align:right}
+#ccBtn[aria-pressed="true"]{background:var(--cue-soft);border-color:var(--cue);color:var(--cue-ink)}
+.tag.pause{background:#6b7f9c}
 /* Telefoon: beurt en scores blijven bovenin in beeld */
 .mobibar{display:none}
 @media (max-width:940px){
@@ -330,7 +337,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 <div class="wrap">
   <header>
     <div class="brand"><div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="bars" fill="#fff"><rect x="3" y="7" width="3" height="10" rx="1.5"/><rect x="8" y="3" width="3" height="18" rx="1.5"/><rect x="13" y="6" width="3" height="12" rx="1.5"/><rect x="18" y="9" width="3" height="6" rx="1.5"/></g></svg><span class="lamp" id="lamp"></span></div><div><h1>Stemmen<em>studio</em></h1><p>Het voice-overspel voor vrienden en familie</p></div></div>
-    <div class="hdr-right"><div class="keys"><span><kbd>Spatie</kbd> opnemen/stop</span><span><kbd>W</kbd> bekijk clip</span><span><kbd>N</kbd> nieuwe clip</span><span><kbd>D</kbd> opdracht</span></div>
+    <div class="hdr-right"><div class="keys"><span><kbd>Spatie</kbd> opnemen/stop</span><span><kbd>W</kbd> bekijk clip</span><span><kbd>P</kbd> pauze</span><span><kbd>N</kbd> nieuwe clip</span><span><kbd>D</kbd> opdracht</span></div>
       <button class="sm" id="helpBtn" type="button" aria-label="Uitleg">❓ <span class="lbl">Uitleg</span></button><button class="sm" id="setBtn" type="button" aria-label="Instellingen">⚙️ <span class="lbl">Instellingen</span></button></div>
   </header>
 
@@ -360,11 +367,15 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         <div class="progress"><i id="prog"></i></div>
       </div>
 
+      <div class="vidbar">
+        <label class="vol"><span aria-hidden="true">🔊</span><input type="range" id="watchVol" min="0" max="100" value="100" aria-label="Geluid van de video"><b id="v0">100%</b></label>
+        <button type="button" class="sm" id="ccBtn" aria-pressed="false" title="Ondertiteling van de video. Werkt alleen als de video ondertitels heeft.">💬 Ondertiteling: uit</button>
+      </div>
       <p class="hint" id="hint" role="status" aria-live="polite">Plak eerst een videolink of upload een video.</p>
       <div class="deck" id="deck">
         <div class="cliphead">
           <h3>Jouw clip <span class="range" id="range">–</span></h3>
-          <div class="lens" id="lens" role="group" aria-label="Cliplengte"><button type="button" data-len="60">1:00</button><button type="button" data-len="90">1:30</button><button type="button" data-len="120">2:00</button></div>
+          <div class="lens" id="lens" role="group" aria-label="Cliplengte"><button type="button" data-len="10">10 sec</button><button type="button" data-len="30">30 sec</button><button type="button" data-len="60">1:00</button><button type="button" data-len="90">1:30</button><button type="button" data-len="120">2:00</button></div>
           <div class="cliprow">
             <button class="sm btn-cue" id="preview" type="button" disabled>👀 Bekijk clip</button>
             <button class="sm" id="randClip" type="button" disabled>🎲 Nieuwe clip</button>
@@ -377,6 +388,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         </div>
         <div class="transport">
           <button class="rec-btn" id="recBtn" disabled aria-describedby="hint"><span class="dot"></span><span id="recLabel">Opnemen</span></button>
+          <button id="pauseBtn" disabled><span id="pauseLabel">⏸ Pauze</span></button>
           <button id="playLast" disabled>▶ Laatste take</button>
           <button id="stopBtn" disabled>■ Stop</button>
           <span class="timecode" id="tc">0:00.0</span>
@@ -385,11 +397,11 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         <details class="mix">
           <summary>Geluid instellen</summary>
           <div class="sliders">
-            <label><span>Video tijdens opnemen <b id="v1">20%</b></span><input type="range" id="recVol" min="0" max="100" value="20"></label>
+            <label><span>Video tijdens opnemen <b id="v1">0%</b></span><input type="range" id="recVol" min="0" max="100" value="0"></label>
             <label><span>Jouw stem bij afspelen <b id="v3">100%</b></span><input type="range" id="voiceVol" min="0" max="250" value="100"></label>
           </div>
         </details>
-        <p class="tip">Zet een koptelefoon op, dan neemt de microfoon het geluid van de video niet mee. Bij terugkijken hoor je alleen jouw stem.</p>
+        <p class="tip">Tijdens het opnemen staat het geluid van de video uit, zodat je alleen jezelf hoort. Bij terugkijken hoor je ook alleen jouw stem. Zet je het geluid tijdens het opnemen toch aan, gebruik dan een koptelefoon.</p>
       </div>
     </div>
 
@@ -469,7 +481,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
     <h2 id="helpTitle">Zo speel je Stemmenstudio</h2>
     <ol class="howto">
       <li><b>🔗 Kies een video</b> Plak een link (YouTube, Vimeo, .mp4) of upload een filmpje.</li>
-      <li><b>👀 Bekijk de clip</b> Het spel kiest een stuk van 1:00, 1:30 of 2:00. Kijk het eerst, dan weet je wat er gebeurt.</li>
+      <li><b>👀 Bekijk de clip</b> Het spel kiest een stuk van 10 seconden tot 2 minuten (zelf te kiezen). Kijk het eerst, met geluid, dan weet je wat er gebeurt.</li>
       <li><b>🎙️ Spreek in</b> Druk op Opnemen (of spatie). Na 3, 2, 1 praat jij over de video heen. Gekke opdracht nodig? Dobbel er een.</li>
       <li><b>😂 Kijk terug en geef punten</b> Iedereen hoort jouw stem. De groep geeft 1 tot 5 punten, daarna is de volgende aan de beurt.</li>
     </ol>

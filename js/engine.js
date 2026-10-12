@@ -9,7 +9,7 @@
 
 // ---------- Regels en constanten: alles op één plek ----------
 const RULES = Object.freeze({
-  clipLengths: Object.freeze([60, 90, 120]),   // seconden
+  clipLengths: Object.freeze([10, 30, 60, 90, 120]),   // seconden
   defaultClip: 90,
   scoreMin: 1, scoreMax: 5,
   roundOptions: Object.freeze([0, 1, 3, 5]),   // 0 = vrij spelen, zonder einde

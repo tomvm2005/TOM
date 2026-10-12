@@ -227,8 +227,8 @@ test("clip langer dan de video wordt de hele video", () => {
   assert.deepEqual(E.pickClip(E.rng(1), 40, 90, []), { start: 0, allPlayed: false });
 });
 
-test("cliplengtes zijn 1:00, 1:30 en 2:00", () => {
-  assert.deepEqual([...E.RULES.clipLengths], [60, 90, 120]);
+test("cliplengtes zijn 10 sec, 30 sec, 1:00, 1:30 en 2:00", () => {
+  assert.deepEqual([...E.RULES.clipLengths], [10, 30, 60, 90, 120]);
   assert.equal(E.RULES.defaultClip, 90);
 });
 
@@ -240,6 +240,20 @@ test("nieuwe clip: kiest een stuk dat nog niet gespeeld is", () => {
   for (let i = 0; i < 50; i++) {
     const { start, allPlayed } = E.pickClip(rand, 300, 90, used);
     assert.equal(allPlayed, false); assert.ok(start >= 90 && start <= 210, "start " + start);
+  }
+});
+
+test("korte clips van 10 en 30 seconden: past in de video en blijft vrij van gespeelde stukken", () => {
+  for (const len of [10, 30]) {
+    const used = [[0, len], [100, 100 + len]];
+    const rand = E.rng(len);
+    for (let i = 0; i < 50; i++) {
+      const { start, allPlayed } = E.pickClip(rand, 200, len, used);
+      assert.equal(allPlayed, false); assert.ok(start >= 0 && start <= 200 - len);
+      assert.ok(start >= len || start + len <= 0 || start >= 100 + len || start + len <= 100, "start " + start);
+    }
+    assert.equal(E.clampStart(195, len, 200), 200 - len);
+    assert.equal(E.clipEnd(0, len, 8), 8, "video korter dan de clip");
   }
 });
 

@@ -14,11 +14,15 @@ Na elke fase stoppen; Tom beoordeelt voordat de volgende begint.
 
 ## Spelregels (zoals het spel nu werkt)
 - **Bron**: elke video-URL (YouTube, Vimeo, directe videolink) of een eigen upload.
-- **Clip**: kies een lengte van 1:00, 1:30 of 2:00 (onthouden als voorkeur). Het spel kiest een willekeurig stuk uit de video ("Nieuwe clip"); stukken die al gespeeld zijn worden gemarkeerd en zo veel mogelijk vermeden.
+- **Clip**: kies een lengte van 10 sec, 30 sec, 1:00, 1:30 of 2:00 (onthouden als voorkeur). Het spel kiest een willekeurig stuk uit de video ("Nieuwe clip"); stukken die al gespeeld zijn worden gemarkeerd en zo veel mogelijk vermeden.
 - **Volgorde per take**: eerst de clip bekijken, dan pas opnemen. Opnemen start met een korte aftelling en loopt synchroon met de video.
 - **Opdracht** (optioneel): dobbel een gekke opdracht (bijv. "natuurdocumentaire", "sportcommentator") of spreek vrij in.
 - **Takes**: elke opname wordt bewaard bij de clip en kan opnieuw afgespeeld, als video gedownload of als losse stem gedownload worden. Alle takes van een clip kunnen achter elkaar afgespeeld worden.
-- **Terugkijken en exporteren**: je hoort alleen je eigen stem, niet het originele geluid van de video. Ondertiteling staat uit.
+- **Geluid**: bij kijken (Bekijk clip, en na laden) speelt de video met geluid (volumeschuif onder de video). Tijdens opnemen staat het geluid van de video standaard uit (0%, instelbaar). Na opnemen of terugkijken staat het geluid weer terug op het kijkvolume.
+- **Pauzeren**: tijdens bekijken, opnemen en terugkijken kan je pauzeren (knop Pauze of toets P). De opname pauzeert mee, zodat de pauze niet in de take zit.
+- **Video niet klikbaar**: de video is alleen om naar te kijken; er zijn geen knoppen van YouTube of de browser te bedienen (abonneren, kanaal enzovoort). Alleen geluid en ondertiteling regel je via Stemmenstudio.
+- **Ondertiteling**: standaard uit (ook tijdens opnemen); een aan/uit-knop onder de video zet hem aan voor wie de ondertitels wil voorlezen. Uit = vrij inspreken, aan = napraten. Werkt alleen als de video ondertitels heeft.
+- **Terugkijken en exporteren**: je hoort alleen je eigen stem, niet het originele geluid van de video. Ondertiteling staat standaard uit.
 - **Punten**: na een take geeft de groep 1 tot 5 punten (gezichtjes, of toets 1 t/m 5). De punten gaan naar de speler van die take; de eerste beoordeling geeft de beurt door aan de volgende speler. Scores kunnen op nul gezet worden.
 - **Bibliotheek**: bewaarde clips en hun takes blijven op dit apparaat staan.
 - **Uitgesloten**: Tom's eerdere Simpsons-video komt niet terug als voorbeeld of standaardclip.
