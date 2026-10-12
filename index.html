@@ -152,7 +152,11 @@ button:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none}
 .track .win{position:absolute;top:4px;bottom:4px;transition:left .35s var(--ease),width .35s var(--ease),box-shadow .2s;border:2px solid var(--cue);border-radius:10px;background:linear-gradient(180deg,rgba(95,178,255,.35),rgba(47,134,255,.22));cursor:grab;display:grid;place-items:center;font:500 12px var(--f-mono);color:#0f4fae;min-width:24px;box-shadow:0 6px 18px -6px rgba(47,134,255,.7),inset 0 1px 0 rgba(255,255,255,.7)}
 .track .win:hover{box-shadow:0 8px 24px -6px rgba(47,134,255,.9),inset 0 1px 0 rgba(255,255,255,.7)}
 .track .win:active{cursor:grabbing}
-.track .head{position:absolute;top:0;bottom:0;width:2px;background:var(--fg);pointer-events:none;box-shadow:0 0 8px rgba(13,36,64,.4)}
+.track .head{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--fg);box-shadow:0 0 8px rgba(13,36,64,.4);cursor:ew-resize;z-index:2;touch-action:none}
+.track .head::before{content:"";position:absolute;top:0;bottom:0;left:-11px;right:-11px}
+.track .head::after{content:"";position:absolute;top:2px;left:50%;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--fg);border:2px solid #fff;box-shadow:0 2px 8px rgba(13,36,64,.45);transition:transform .2s var(--spring)}
+.track .head:hover::after,.track.seeking .head::after{transform:scale(1.25)}
+.track.noseek .head{cursor:default}
 .track .ticks{position:absolute;left:10px;right:10px;bottom:4px;display:flex;justify-content:space-between;font:500 11px var(--f-mono);color:var(--muted);pointer-events:none}
 .cliprow{display:flex;flex-wrap:wrap;gap:8px}
 .lens{display:flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:3px}
@@ -172,8 +176,9 @@ button:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none}
 @keyframes recbtn{50%{box-shadow:0 0 0 10px rgba(255,77,97,.12),0 16px 34px -10px rgba(255,77,97,.85)}}
 .timecode{font:500 22px var(--f-mono);font-variant-numeric:tabular-nums;color:var(--muted);margin-left:auto;transition:color .3s}
 .timecode.live{color:var(--onair)}
-.meter{height:8px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden}
-.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--cue-2) 55%,var(--cue) 75%,var(--onair));border-radius:6px;transition:width .06s linear}
+.clipbar{height:8px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden}
+.clipbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cue-2),var(--cue));border-radius:6px}
+.clipbar.rec i{background:linear-gradient(90deg,#ff8a97,var(--onair))}
 details.mix summary{cursor:pointer;color:var(--muted);font-size:14px;font-weight:600;list-style:none;display:inline-flex;align-items:center;gap:6px;transition:color .2s}
 details.mix summary::-webkit-details-marker{display:none}
 details.mix summary::before{content:"›";display:inline-block;font-size:18px;line-height:1;transition:transform .3s var(--spring)}
@@ -313,7 +318,19 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 .player .nm,.take .t,.clip .nm,.podium .nm,.nowturn b{line-height:1.35;padding:.1em .12em .18em;margin:-.1em -.12em -.18em}
 .track.dragging .win{transition:box-shadow .2s}
 /* De video is alleen om naar te kijken: geen klikken op YouTube-knoppen (abonneren, kanaal, enzovoort) */
-#stage{pointer-events:none}
+/* Een doorzichtig scherm over de video blokkeert alle klikken. Alleen bij YouTube blijft rechtsonder een gat open, zodat je een reclame kan overslaan. */
+.shield{position:absolute;inset:0;z-index:2;background:transparent}
+.shield.click{cursor:pointer}
+.vctl{position:absolute;left:12px;bottom:14px;z-index:3;display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border-radius:999px;background:rgba(11,26,46,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;font:500 13px var(--f-mono);font-variant-numeric:tabular-nums;animation:drop .4s var(--spring) both}
+.vctl button{width:32px;height:32px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:14px;line-height:1;display:grid;place-items:center;box-shadow:none;transform:none}
+.vctl button:hover{background:rgba(255,255,255,.34);transform:none}
+.vctl button:disabled{opacity:.45}
+.flash{position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;background:rgba(11,26,46,.55);color:#fff;font-size:30px;display:grid;place-items:center;z-index:3;pointer-events:none;opacity:0}
+.flash.go{animation:flash .6s var(--ease) both}
+.flash svg{width:34px;height:34px}
+@keyframes flash{0%{opacity:.95;transform:scale(.7)}100%{opacity:0;transform:scale(1.35)}}
+.rec-btn .dot{box-shadow:0 0 0 calc(var(--lvl,0) * 9px) rgba(255,255,255,.38)}
+.shield.ytskip{clip-path:polygon(evenodd,0 0,100% 0,100% 100%,0 100%,0 0,68% 52%,100% 52%,100% 94%,68% 94%,68% 52%)}
 .vidbar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between;padding:0 4px}
 .vidbar .vol{display:flex;align-items:center;gap:10px;flex:1 1 200px;max-width:340px;font-size:14px;color:var(--muted)}
 .vidbar .vol b{font:500 13px var(--f-mono);color:var(--cue-ink);min-width:3.2em;text-align:right}
@@ -359,6 +376,12 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
     <div class="col">
       <div class="screen" id="screen">
         <div id="stage"></div>
+        <div class="shield" id="shield" aria-hidden="true" title="Klik om af te spelen of te pauzeren"></div>
+        <div class="flash" id="flash" aria-hidden="true"></div>
+        <div class="vctl" id="vctl" hidden>
+          <button type="button" id="vPlay" aria-label="Afspelen"></button>
+          <span id="vTime" title="Waar je in de video bent / hoe lang de hele video duurt">0:00 / 0:00</span>
+        </div>
         <div class="empty" id="empty"><div><div class="orb"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><b>Kies een video om te beginnen</b>Plak hierboven een link of upload een video.
           <div class="steps"><span>1 · Bekijk de clip</span><span>2 · Spreek in</span><span>3 · Kijk terug en geef punten</span></div></div></div>
         <div class="overlay" id="overlay"></div>
@@ -393,7 +416,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
           <button id="stopBtn" disabled>■ Stop</button>
           <span class="timecode" id="tc">0:00.0</span>
         </div>
-        <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+        <div class="clipbar" id="clipbar" aria-hidden="true"><i id="clipfill"></i></div>
         <details class="mix">
           <summary>Geluid instellen</summary>
           <div class="sliders">

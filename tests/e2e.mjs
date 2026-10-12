@@ -257,8 +257,32 @@ try {
     const secs = t => { const m = t.match(/(\d+):(\d+)\D+(\d+):(\d+)/); return (+m[3] * 60 + +m[4]) - (+m[1] * 60 + +m[2]); };
     await page.click('#lens button[data-len="10"]'); check("clip van 10 seconden", secs(await page.textContent("#range")) === 10, await page.textContent("#range"));
     await page.click('#lens button[data-len="30"]'); check("clip van 30 seconden", secs(await page.textContent("#range")) === 30, await page.textContent("#range"));
-    check("video is niet klikbaar (geen abonneeknop of andere knoppen in de speler)", await S(page, () => getComputedStyle(document.getElementById("stage")).pointerEvents === "none"));
+    const hit = (fx, fy) => page.evaluate(([x, y]) => { document.getElementById("screen").scrollIntoView({ block: "center" }); const r = document.getElementById("screen").getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width * x, r.top + r.height * y); return el ? (el.id || el.tagName) : null; }, [fx, fy]);
+    check("video is niet klikbaar: een klik op het beeld raakt het afschermlaagje", await hit(0.5, 0.5) === "shield" && await hit(0.1, 0.1) === "shield" && await hit(0.85, 0.7) === "shield", [await hit(0.5, 0.5), await hit(0.1, 0.1), await hit(0.85, 0.7)].join(","));
+    await S(page, () => document.getElementById("shield").classList.add("ytskip"));
+    check("reclame overslaan: alleen rechtsonder in het beeld komt een klik door", await hit(0.85, 0.7) === "VIDEO" && await hit(0.5, 0.5) === "shield" && await hit(0.1, 0.1) === "shield" && await hit(0.85, 0.2) === "shield" && await hit(0.5, 0.7) === "shield");
+    await S(page, () => document.getElementById("shield").classList.remove("ytskip"));
     check("video heeft geen eigen knoppen meer", await S(page, () => window.__ss.src.el.controls === false));
+
+    // in het beeld: hoe lang de video duurt, en klikken = afspelen/pauzeren zoals YouTube
+    check("in het beeld staat hoe lang de video duurt", /\/ 3:20$/.test(await page.textContent("#vTime")) && await page.isVisible("#vctl"), await page.textContent("#vTime"));
+    await page.click("#shield"); await sleep(400);
+    check("klik op het beeld speelt de video af", await S(page, () => !window.__ss.src.el.paused) && await page.getAttribute("#vPlay", "data-st") === "pause");
+    await page.click("#shield"); await sleep(250);
+    check("nog een klik op het beeld pauzeert", await S(page, () => window.__ss.src.el.paused) && await page.getAttribute("#vPlay", "data-st") === "play");
+    await page.click("#vPlay"); await sleep(300);
+    check("de knop linksonder in het beeld doet hetzelfde", await S(page, () => !window.__ss.src.el.paused));
+    await page.click("#vPlay"); await sleep(200);
+    // zwarte lijntje verslepen = door de video spoelen
+    const clip0 = await S(page, () => window.__ss.clipStart);
+    await page.locator("#track").scrollIntoViewIfNeeded();
+    const hb = await page.locator("#phead").boundingBox(), tb = await page.locator("#track").boundingBox();
+    await page.mouse.move(hb.x + hb.width / 2, tb.y + tb.height / 2); await page.mouse.down();
+    await page.mouse.move(tb.x + tb.width * 0.6, tb.y + tb.height / 2, { steps: 5 });
+    await page.mouse.move(tb.x + tb.width * 0.75, tb.y + tb.height / 2, { steps: 5 }); await page.mouse.up(); await sleep(400);
+    const pos = await S(page, () => window.__ss.src.time());
+    check("het zwarte lijntje verslepen spoelt de video", Math.abs(pos - 150) < 4 && await S(page, () => window.__ss.clipStart) === clip0, `video op ${pos.toFixed(1)} s (verwacht ~150), clip blijft op ${clip0} s`);
+    check("de videotijd in het beeld loopt mee", /^2:3\d \//.test(await page.textContent("#vTime")), await page.textContent("#vTime"));
     check("tijdens opnemen staat het geluid standaard uit", await page.inputValue("#recVol") === "0");
 
     // pauzeren tijdens kijken
@@ -278,6 +302,10 @@ try {
     await page.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 });
     check("tijdens opnemen staat het geluid van de video uit", await vol() === 0);
     await sleep(1500);
+    const clk = await S(page, () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => {
+      const m = document.getElementById("tc").textContent.match(/(\d+):(\d+\.\d)\s*\/\s*(\d+):(\d+)/);
+      r({ rel: +m[1] * 60 + +m[2], len: +m[3] * 60 + +m[4], bar: parseFloat(document.getElementById("clipfill").style.width), scr: parseFloat(document.getElementById("prog").style.width) }); }))));
+    check("timer en opnamebalkje lopen gelijk", clk.rel > 0.5 && Math.abs(clk.rel - clk.bar / 100 * clk.len) < 0.1 && Math.abs(clk.bar - clk.scr) < 0.01, JSON.stringify(clk));
     await page.click("#pauseBtn"); await sleep(2500);
     check("opname staat op pauze samen met de video", await S(page, () => window.__ss.rec.state === "paused" && window.__ss.src.el.paused) && /PAUZE/.test(await page.textContent("#tag")));
     await page.click("#pauseBtn"); await sleep(1500);

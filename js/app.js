@@ -36,7 +36,7 @@ let CLIP = R.clipLengths.includes(LS.get(KEYS.len)) ? LS.get(KEYS.len) : R.defau
 
 const S = {
   src:null, srcInfo:null, srcKey:null, clipStart:0, clipId:null, mode:"idle", // idle|arming|countdown|recording|preview|playing
-  paused:false, captions: LS.get(KEYS.captions,false)===true,
+  paused:false, vstate:null, scrub:null, captions: LS.get(KEYS.captions,false)===true,
   stream:null, rec:null, chunks:[], t0:0, offset:null, recStart:0, recEnd:0, recPlayerId:null, challenge:null, currentChallenge:null,
   takes:[], clips:[], watched:new Set(), ctx:null, analyser:null, voiceGain:null, voiceSrc:null, voiceAt:null, lastResync:0,
   drift:[], playing:null, queue:[], rateTake:null, exporting:null, sound: LS.get(KEYS.sound, true) !== false,
@@ -151,6 +151,7 @@ async function makeYouTube(info, host, emit){
     const api = { kind:"yt", canExport:false,
       play:()=>p.playVideo(), pause:()=>p.pauseVideo(), seek:s=>p.seekTo(s,true), time:()=>p.getCurrentTime?.()||0,
       duration:()=>p.getDuration?.()||0, setVolume:v=>{ p.unMute(); p.setVolume(v); }, destroy:()=>{ try{p.destroy();}catch{} },
+      inAd:()=>typeof p.getAdState==="function" ? p.getAdState()===1 : undefined, // onbekend (undefined) als YouTube dit niet laat zien
       setCaptions:on=>{ try{ if (on) p.loadModule("captions"); else { p.unloadModule("captions"); p.unloadModule("cc"); } }catch{} },
       title:()=>p.getVideoData?.().title||"YouTube-video", thumb:"https://i.ytimg.com/vi/"+info.id+"/mqdefault.jpg" };
   });
@@ -212,7 +213,7 @@ async function loadSource(info, opts={}){
   if (info.kind==="blocked") return showErr(`${info.host} laat video's niet op andere sites afspelen. Download de video (bijvoorbeeld via de deelknop in de app) en upload hem hier met Upload video.`);
   if ((info.kind==="yt"||info.kind==="vimeo") && location.protocol==="file:") showInfo("Je hebt Stemmenstudio als bestand geopend. YouTube en Vimeo werken alleen via de online link. Eigen videobestanden werken wel gewoon.");
   const seq = ++loadSeq; // een nieuwere laadactie wint van een oudere die nog bezig is
-  if (S.src){ S.src.destroy(); S.src=null; }
+  if (S.src){ S.src.destroy(); S.src=null; } S.vstate=null; S.scrub=null;
   const host=$("stage"); host.innerHTML="";
   $("empty").hidden=false; $("empty").firstElementChild.innerHTML='<div class="orb loading"></div><b>Video laden…</b>';
   refreshButtons();
@@ -261,6 +262,7 @@ function newClip(announce=true){
   setClipStart(start);
   if (announce){ sfx("tick"); if (!allPlayed) toast("Nieuwe clip: "+fmtS(S.clipStart)+" – "+fmtS(clipEnd())); }
 }
+const canSeek = () => !!S.src && !S.exporting && (S.mode==="idle"||S.mode==="preview");
 function renderTrack(){
   const tr=$("track"), d=dur();
   tr.querySelectorAll(".used,.win,.head").forEach(n=>n.remove());
@@ -269,20 +271,30 @@ function renderTrack(){
   if (!d) return;
   for (const [a,b] of E.usedRanges(S.clips, S.srcKey)){ const u=document.createElement("div"); u.className="used"; u.style.left=(a/d*100)+"%"; u.style.width=(Math.min(b,d)-a)/d*100+"%"; u.title="Al gespeeld"; tr.appendChild(u); }
   const w=document.createElement("div"); w.className="win"; w.style.left=(S.clipStart/d*100)+"%"; w.style.width=((clipEnd()-S.clipStart)/d*100)+"%"; w.textContent = d>CLIP*2.5 ? fmtS(CLIP) : ""; tr.appendChild(w);
-  const h=document.createElement("div"); h.className="head"; h.id="phead"; tr.appendChild(h);
+  const h=document.createElement("div"); h.className="head"; h.id="phead"; h.title="Sleep om door de video te spoelen"; tr.appendChild(h);
 }
 (() => {
   const tr=$("track"); let drag=null;
   const at = e => { const r=tr.getBoundingClientRect(); return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*dur(); };
+  // Het zwarte lijntje is de plek in de video: verslepen spoelt de video (vrij als er niets loopt, binnen de clip tijdens bekijken).
+  const seekTo = t => { if (S.mode==="preview") t=Math.max(S.clipStart,Math.min(t,clipEnd()-.1)); S.scrub=t; S.src.seek(t); };
   tr.addEventListener("pointerdown",e=>{
-    if (!S.src || S.mode!=="idle" || !dur()) return;
+    if (!S.src || !dur()) return;
+    if (e.target.closest(".head") && canSeek()){
+      e.preventDefault(); tr.setPointerCapture(e.pointerId); tr.classList.add("seeking");
+      drag={seek:true}; seekTo(at(e)); return;
+    }
+    if (S.mode!=="idle") return;
     tr.setPointerCapture(e.pointerId); tr.classList.add("dragging");
     const t=at(e); const inside = t>=S.clipStart && t<=clipEnd();
     drag = {grab: inside ? t-S.clipStart : Math.min(CLIP,dur())/2};
     setClipStart(t-drag.grab);
   });
-  tr.addEventListener("pointermove",e=>{ if (drag) setClipStart(at(e)-drag.grab); });
-  const end=()=>{ if (drag){ drag=null; tr.classList.remove("dragging"); S.src?.seek(S.clipStart); } };
+  tr.addEventListener("pointermove",e=>{ if (!drag) return; if (drag.seek) seekTo(at(e)); else setClipStart(at(e)-drag.grab); });
+  const end=()=>{ if (!drag) return;
+    if (drag.seek){ tr.classList.remove("seeking"); setTimeout(()=>{ S.scrub=null; },250); }
+    else { tr.classList.remove("dragging"); S.src?.seek(S.clipStart); }
+    drag=null; };
   tr.addEventListener("pointerup",end); tr.addEventListener("pointercancel",end);
   tr.addEventListener("keydown",e=>{ if (!S.src||S.mode!=="idle") return;
     if (e.key==="ArrowLeft"){ e.preventDefault(); setClipStart(S.clipStart-(e.shiftKey?30:5)); }
@@ -306,7 +318,7 @@ async function getMic(){
 function meterLoop(){
   const buf=new Uint8Array(512);
   const tick=()=>{ let peak=0; if (S.analyser){ S.analyser.getByteTimeDomainData(buf); for (const v of buf) peak=Math.max(peak,Math.abs(v-128)); }
-    $("meter").style.width=(S.mode==="recording"||S.mode==="countdown"?Math.min(100,peak/90*100):0)+"%"; requestAnimationFrame(tick); };
+    $("recBtn").style.setProperty("--lvl",S.mode==="recording"||S.mode==="countdown"?Math.min(1,peak/90).toFixed(2):0); requestAnimationFrame(tick); };
   tick();
 }
 function tone(f,d=.12,v=.15,at=0){
@@ -329,6 +341,7 @@ function sfx(name, arg){ if (!S.sound || navigator.userActivation?.hasBeenActive
 
 // ---------- Status van de video ----------
 function onState(st,msg){
+  if (st!=="error") S.vstate=st;
   if (st==="error"){
     if (S.mode==="recording"||S.mode==="countdown") stopRecording();
     else if (S.mode==="playing") finishPlayback(false);
@@ -339,7 +352,7 @@ function onState(st,msg){
     if (st==="playing" && S.rec.state==="paused") S.rec.resume();
   }
   if (S.mode==="recording"){
-    if (st==="playing" && S.offset===null){ S.offset=(performance.now()-S.t0)/1000; S.recStart=S.src.time(); }
+    if (st==="playing" && S.offset===null && !S.src.inAd?.()){ S.offset=(performance.now()-S.t0)/1000; S.recStart=S.src.time(); }
     if (st==="ended") stopRecording();
   }
   if (S.mode==="playing"){ if (st==="playing") startVoice(); else stopVoice(); if (st==="ended") finishPlayback(true); }
@@ -352,7 +365,7 @@ async function startRecording(){
   const why = recordWhy();
   if (why){ nudgeHint(why); return; }
   hideErr(); closeRate();
-  S.mode="arming"; refreshButtons(); // direct zichtbaar, en een tweede klik doet niets
+  S.mode="arming"; S.src.pause(); refreshButtons(); // direct zichtbaar, en een tweede klik doet niets
   await nextFrame(); // eerst de reactie tekenen, dan pas de (soms trage) microfoon opstarten
   try { await getMic(); }
   catch(err){
@@ -690,6 +703,7 @@ function nextStep(){
     case "playing": return S.exporting ? "🎬 De video wordt gemaakt. Laat de clip uitspelen." : S.paused ? "⏸ Gepauzeerd. Druk op Verder." : "▶ Terugkijken…";
   }
   if (!S.src) return `👉 ${who} is aan de beurt. Plak eerst een videolink of upload een video.`;
+  if (S.ad) return "📺 Er speelt een reclame. Klik rechtsonder in het beeld op Overslaan.";
   if (S.rateTake) return `😂 Geef ${S.rateTake.who} punten: hoe grappig was het? (1 t/m 5)`;
   const why=recordWhy();
   if (why) return `👉 ${who}: ${why}`;
@@ -767,6 +781,18 @@ function togglePause(){
   if (S.paused) S.src.pause(); else S.src.play();
   refreshButtons();
 }
+// Klik op het beeld of de knop linksonder: afspelen of pauzeren, zoals bij YouTube.
+function screenClick(){
+  if (!S.src || S.exporting) return;
+  const m=S.mode;
+  if (m==="recording"||m==="preview"||m==="playing"){ togglePause(); flash(S.paused?"pause":"play"); return; }
+  if (m!=="idle") return;
+  if (S.vstate==="playing"){ S.src.pause(); flash("pause"); }
+  else { S.src.setVolume(watchVol()); S.src.play(); flash("play"); }
+}
+function flash(icon){ const f=$("flash"); f.innerHTML=ICON[icon]; f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
+$("shield").addEventListener("click",screenClick);
+$("vPlay").onclick=screenClick;
 function renderCaptionsBtn(){ const b=$("ccBtn"); b.setAttribute("aria-pressed",S.captions); b.textContent="💬 Ondertiteling: "+(S.captions?"aan":"uit"); }
 $("ccBtn").onclick=()=>{ S.captions=!S.captions; LS.set(KEYS.captions,S.captions); S.src?.setCaptions?.(S.captions); renderCaptionsBtn();
   toast(S.captions?"Ondertiteling aan (als de video ondertitels heeft). Lees ze voor, of praat er vrij overheen.":"Ondertiteling uit."); };
@@ -802,17 +828,44 @@ window.addEventListener("beforeunload",e=>{ if (S.mode==="recording"||S.mode==="
 document.addEventListener("visibilitychange",()=>{ if (document.hidden && (S.mode==="recording"||S.mode==="countdown"||S.mode==="arming")) stopRecording(); });
 
 setInterval(()=>{
-  if (!S.src) return; const now=S.src.time(), d=dur(); let rel=0, len=clipEnd()-S.clipStart;
-  if (S.mode==="recording"){ rel=S.offset===null?0:now-S.recStart; if (now>=clipEnd()-TIMING.recEndSlack) stopRecording(); }
-  else if (S.mode==="playing"&&S.playing){ rel=now-S.playing.start; len=S.playing.end-S.playing.start; checkSync(); if (now>=S.playing.end+TIMING.playEndSlack) finishPlayback(true); }
-  else if (S.mode==="preview"){ rel=now-S.clipStart; if (now>=clipEnd()) stopPreview(); }
-  else rel=now-S.clipStart;
-  rel=Math.max(0,Math.min(rel,len));
-  $("tc").textContent=fmt(rel)+" / "+fmtS(len);
-  $("remain").textContent=fmtS(Math.ceil(len-rel));
-  $("prog").style.width=(S.mode==="idle"||S.mode==="countdown"||S.mode==="arming"?0:rel/len*100)+"%";
-  const h=$("phead"); if (h&&d) h.style.left=(now/d*100)+"%";
+  if (!S.src) return; const now=S.src.time();
+  if (S.mode==="recording"){ if (now>=clipEnd()-TIMING.recEndSlack) stopRecording(); }
+  else if (S.mode==="playing"&&S.playing){ checkSync(); if (now>=S.playing.end+TIMING.playEndSlack) finishPlayback(true); }
+  else if (S.mode==="preview"){ if (now>=clipEnd()) stopPreview(); }
+  // Reclame: rechtsonder in het beeld blijft klikbaar. Is niet te zien of er een reclame speelt, dan blijft dat gat altijd open.
+  const ad=S.src.inAd?.(); const hole=S.src.kind==="yt"&&(ad===undefined||ad===true);
+  $("shield").classList.toggle("ytskip",hole);
+  if ((ad===true)!==S.ad){ S.ad=(ad===true); refreshButtons(); }
 },TIMING.tick);
+
+// Timer, balkjes, zwart lijntje en videotijd komen elke frame uit dezelfde videotijd, zodat ze precies gelijk lopen.
+function clipPos(now){
+  let rel=now-S.clipStart, len=clipEnd()-S.clipStart;
+  if (S.mode==="playing"&&S.playing){ rel=now-S.playing.start; len=S.playing.end-S.playing.start; }
+  else if (S.mode==="countdown"||S.mode==="arming"||(S.mode==="recording"&&S.offset===null)) rel=0;
+  return {rel:Math.max(0,Math.min(rel,len)), len:Math.max(len,.001)};
+}
+const ICON={ play:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>',
+  pause:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/></svg>' };
+const setText=(id,t)=>{ const el=$(id); if (el.textContent!==t) el.textContent=t; };
+function drawClock(){
+  requestAnimationFrame(drawClock);
+  $("vctl").hidden=!S.src; if (!S.src) return;
+  const now=S.scrub??S.src.time(), d=dur(), {rel,len}=clipPos(now), pct=(rel/len*100).toFixed(2)+"%", m=S.mode;
+  setText("tc",fmt(rel)+" / "+fmtS(len));
+  setText("remain",fmtS(Math.ceil(len-rel-.001)));
+  $("prog").style.width=pct; $("clipfill").style.width=pct;
+  $("clipbar").classList.toggle("rec",m==="recording"||m==="countdown");
+  const h=$("phead"); if (h&&d) h.style.left=(Math.min(now,d)/d*100)+"%";
+  $("track").classList.toggle("noseek",!canSeek());
+  setText("vTime",fmtS(now)+" / "+(d?fmtS(d):"–"));
+  const playing=S.vstate==="playing"&&!S.paused, b=$("vPlay");
+  const st=playing?"pause":"play";
+  if (b.dataset.st!==st){ b.dataset.st=st; b.innerHTML=ICON[st]; b.setAttribute("aria-label",playing?"Pauzeren":"Afspelen"); }
+  b.disabled=!!S.exporting||m==="countdown"||m==="arming";
+  $("shield").classList.toggle("click",!b.disabled);
+}
+requestAnimationFrame(drawClock);
 
 // ---------- Feedback-effecten ----------
 function bump(el){ if (!el) return; el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump"); }
