@@ -18,7 +18,6 @@ const RULES = Object.freeze({
   maxName: 24,
   freeStep: 5,             // stapgrootte (s) bij het zoeken naar een stuk dat nog niet gespeeld is
   clipMatchTolerance: 1,   // twee clips met een begin binnen 1 s van elkaar zijn dezelfde clip
-  tailSecs: 3,             // s extra opnemen na het einde van de clip, om je zin af te maken
   placeholderName: "Speler 1",
 });
 

@@ -27,6 +27,8 @@ Sneltoetsen: spatie opnemen/stoppen, W bekijk clip, P pauze (of laatste take als
 - Wijzigingen aan het spel komen vanzelf bij spelers: de pagina ververst zichzelf als er een nieuwe versie online staat (niet tijdens spelen of opnemen).
 - Accounts: met een account (knop rechtsboven) staan je clips en takes online en zie je ze op elk apparaat terug. Dit staat aan zodra `js/config.js` is ingevuld; zie `supabase/README.md`.
 - Een partij die bezig was, gaat na herladen gewoon verder.
+- De opname stopt precies aan het einde van de clip en de microfoon gaat dan meteen uit.
+- "Deze sessie" onder Bewaarde clips = clips die in dit tabblad zijn gemaakt of waarop hier is ingesproken (met alleen de takes van nu). De knop "Speel alle clips achter elkaar" speelt alle takes van die clips na elkaar af.
 
 ## Structuur
 - `index.html`: opmaak en stijl

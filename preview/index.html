@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Stemmenstudio (testversie)</title>
+<title>Stemmenstudio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;700;800&family=JetBrains+Mono:wght@500&display=swap">
 <style>
@@ -245,6 +245,9 @@ aside{display:grid;gap:16px}
 /* Bibliotheek */
 .lib{border-radius:22px;padding:20px;display:grid;gap:14px}
 .lib h2{font:800 21px var(--f-display);margin:0;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;letter-spacing:-.02em}
+.libbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;margin:10px 0 14px}
+.libbar .lens button .n{font:500 11px var(--f-mono);opacity:.7;margin-left:6px}
+#reelBtn[aria-pressed=true]{background:linear-gradient(135deg,var(--rec-a),var(--rec-b))}
 .lib h2 small{font:500 13px var(--f-body);color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
 .clip{background:#fff;border-radius:16px;overflow:hidden;display:grid;cursor:pointer;border:1.5px solid var(--line);text-align:left;padding:0;font:inherit;color:inherit;transition:transform .35s var(--spring),box-shadow .35s var(--ease),border-color .25s}
@@ -469,6 +472,10 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 
   <section class="lib">
     <h2>Bewaarde clips <small id="libSub">Clips en takes blijven op deze computer bewaard.</small></h2>
+    <div class="libbar" id="libbar">
+      <div class="lens seg" id="libScope" role="group" aria-label="Welke clips"><button type="button" data-scope="sess">Deze sessie</button><button type="button" data-scope="all">Alle bewaarde clips</button></div>
+      <button type="button" class="btn-cue" id="reelBtn" disabled>▶ Speel alle clips achter elkaar</button>
+    </div>
     <div class="grid" id="lib"></div>
   </section>
 </div>
@@ -577,7 +584,6 @@ const RULES = Object.freeze({
   maxName: 24,
   freeStep: 5,             // stapgrootte (s) bij het zoeken naar een stuk dat nog niet gespeeld is
   clipMatchTolerance: 1,   // twee clips met een begin binnen 1 s van elkaar zijn dezelfde clip
-  tailSecs: 3,             // s extra opnemen na het einde van de clip, om je zin af te maken
   placeholderName: "Speler 1",
 });
 
@@ -954,7 +960,7 @@ let CLIP = R.clipLengths.includes(LS.get(KEYS.len)) ? LS.get(KEYS.len) : R.defau
 
 const S = {
   src:null, srcInfo:null, srcKey:null, clipStart:0, clipId:null, mode:"idle", // idle|arming|countdown|recording|preview|playing
-  paused:false, vstate:null, scrub:null, captions: LS.get(KEYS.captions,false)===true,
+  paused:false, vstate:null, scrub:null, reel:null, playDone:null, libScope:null, captions: LS.get(KEYS.captions,false)===true,
   stream:null, rec:null, chunks:[], t0:0, offset:null, recStart:0, recEnd:0, recPlayerId:null, challenge:null, currentChallenge:null,
   takes:[], clips:[], watched:new Set(), ctx:null, analyser:null, voiceGain:null, voiceSrc:null, voiceAt:null, lastResync:0,
   drift:[], playing:null, queue:[], rateTake:null, exporting:null, sound: LS.get(KEYS.sound, true) !== false,
@@ -963,6 +969,8 @@ let G = E.newState(); // spelstatus (spelers, beurt, rondes)
 
 // ---------- Opslag (IndexedDB, met geheugen als terugval) ----------
 // put() geeft true als het echt op dit apparaat bewaard is, false als het alleen in het geheugen staat.
+// Een sessie = dit tabblad: blijft gelijk bij verversen (ook bij automatisch bijwerken), begint opnieuw bij een nieuw tabblad.
+const SESSION_START = (() => { try { const v=+sessionStorage.getItem("ss.sessionStart"); if (v) return v; const n=Date.now(); sessionStorage.setItem("ss.sessionStart",String(n)); return n; } catch { return Date.now(); } })();
 let OWNER = "gast"; // van wie de bewaarde clips en takes zijn: het account-id, of "gast" zonder account
 const DB = (() => {
   let dbp = null;
@@ -1376,14 +1384,14 @@ function onState(st,msg){
     showErr(msg); return;
   }
   if (S.mode==="recording" && S.offset!==null && S.rec){ // de opname loopt precies zolang de video speelt: pauze of haperen houdt stem en beeld gelijk
-    if (st==="paused" && S.rec.state==="recording" && !S.tailing) S.rec.pause();
+    if (st==="paused" && S.rec.state==="recording") S.rec.pause();
     if (st==="playing" && S.rec.state==="paused") S.rec.resume();
   }
   if (S.mode==="recording"){
     if (st==="playing" && S.offset===null && !S.src.inAd?.()){ S.offset=(performance.now()-S.t0)/1000; S.recStart=S.src.time(); }
-    if (st==="ended") clipFinished();
+    if (st==="ended") stopRecording();
   }
-  if (S.mode==="playing"){ if (st==="playing") startVoice(); else if (!S.tailPlay) stopVoice(); if (st==="ended") videoEndedInPlay(); }
+  if (S.mode==="playing"){ if (st==="playing") startVoice(); else stopVoice(); if (st==="ended") finishPlayback(true); }
   if (S.mode==="preview" && st==="ended") stopPreview();
 }
 
@@ -1404,7 +1412,7 @@ async function startRecording(){
     return;
   }
   if (S.mode!=="arming") return; // intussen gestopt
-  S.mode="countdown"; S.offset=null; S.chunks=[]; S.tailing=false; S.challenge=S.currentChallenge; S.recPlayerId=E.current(G).id;
+  S.mode="countdown"; S.offset=null; S.chunks=[]; S.challenge=S.currentChallenge; S.recPlayerId=E.current(G).id;
   S.src.pause(); S.src.seek(S.clipStart);
   const mime=["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg"].find(m=>window.MediaRecorder?.isTypeSupported?.(m))||"";
   try { S.rec=new MediaRecorder(S.stream, mime?{mimeType:mime}:undefined); } catch { S.mode="idle"; refreshButtons(); showErr("Opnemen wordt niet ondersteund in deze browser."); return; }
@@ -1418,26 +1426,17 @@ async function startRecording(){
 }
 function stopRecording(){
   if (S.mode==="arming"){ S.mode="idle"; refreshButtons(); return; }
-  if (S.mode==="countdown"){ S.mode="idle"; $("overlay").innerHTML=""; S.rec.onstop=null; try{ S.rec.stop(); }catch{} refreshButtons(); return; }
+  if (S.mode==="countdown"){ S.mode="idle"; $("overlay").innerHTML=""; S.rec.onstop=null; try{ S.rec.stop(); }catch{} micOff(); refreshButtons(); return; }
   if (S.mode!=="recording") return;
-  clearTimeout(S.tailTimer); if (!S.tailing) S.recEnd=Math.min(S.src.time(), clipEnd());
-  S.tailing=false; S.src.pause(); S.mode="idle"; try{ S.rec.stop(); }catch{} restoreVolume(); refreshButtons(); sfx("done");
+  S.recEnd=Math.min(S.src.time(), clipEnd()); S.src.pause(); S.mode="idle";
+  try{ S.rec.stop(); }catch{}
+  micOff(); // de microfoon gaat meteen uit: geen opname meer na het einde van de clip
+  restoreVolume(); refreshButtons(); sfx("done");
 }
-// De clip is afgelopen: het beeld staat stil, maar de opname loopt nog even door zodat je je zin kan afmaken.
-function clipFinished(){
-  if (S.mode!=="recording" || S.tailing) return;
-  S.tailing=true; S.recEnd=Math.min(S.src.time(), clipEnd()); S.paused=false; S.src.pause();
-  S.tailTimer=setTimeout(stopRecording, R.tailSecs*1000);
-  refreshButtons(); sfx("tick");
-}
-// Terugkijken: is er na het einde van het beeld nog stem, dan blijft het beeld staan tot die stem klaar is.
-function videoEndedInPlay(){
-  const t=S.playing; if (S.mode!=="playing" || !t || S.tailPlay) return;
-  const tail=t.buffer ? t.buffer.duration-E.voicePos(t,t.end) : 0;
-  if (tail<0.3){ finishPlayback(true); return; }
-  S.tailPlay=true; S.src.pause();
-  S.tailTimer=setTimeout(()=>finishPlayback(true),Math.min(tail,R.tailSecs+1)*1000+TIMING.playEndSlack*1000);
-  refreshButtons();
+// Microfoon echt uitzetten (het opnamelampje van de browser gaat uit). De volgende opname vraagt hem weer op.
+function micOff(){
+  if (S.stream){ for (const t of S.stream.getTracks()) { try{ t.stop(); }catch{} } }
+  S.stream=null; S.analyser=null;
 }
 async function saveTake(){
   const blob=new Blob(S.chunks,{type:S.rec.mimeType||"audio/webm"});
@@ -1511,12 +1510,12 @@ function checkSync(){
 }
 function finishPlayback(natural){
   if (S.mode!=="playing") return;
-  clearTimeout(S.tailTimer); S.tailPlay=false;
   const t=S.playing; stopVoice(); S.src.pause(); S.mode="idle"; S.playing=null; restoreVolume();
   if (S.exporting) endExport(natural);
   refreshButtons(); renderTakes();
   if (natural && S.queue.length){ const next=S.queue.shift(); const q=S.queue; setTimeout(()=>playTake(next,{queue:q}),TIMING.nextTakeGap); return; }
   S.queue=[];
+  if (S.playDone){ const d=S.playDone; S.playDone=null; d(natural); } // de volgorde van clips wacht hierop
   if (natural && t?.rateAfter) openRate(t);
   if (S.src) S.src.seek(S.clipStart);
 }
@@ -1706,21 +1705,72 @@ function renderTakes(){
   });
   refreshButtons();
 }
+// Welke takes horen bij deze sessie, en welke clips (met takes) horen erbij.
+const sessTakes = c => S.takes.filter(t=>t.clipId===c.id && t.created>=SESSION_START);
+const inSession = c => c.created>=SESSION_START || sessTakes(c).length>0;
+const libScope = () => S.libScope || (S.clips.some(inSession) ? "sess" : "all");
+function reelItems(){
+  const sess=libScope()==="sess";
+  return S.clips.map(c=>({clip:c, takes:(sess?sessTakes(c):S.takes.filter(t=>t.clipId===c.id)).sort((a,b)=>a.created-b.created)}))
+    .filter(x=>x.takes.length && (!sess || inSession(x.clip))).sort((a,b)=>a.takes[0].created-b.takes[0].created);
+}
 function renderLib(){
-  const box=$("lib"); const cl=[...S.clips].sort((a,b)=>(b.playedAt||b.created)-(a.playedAt||a.created));
-  if (!cl.length){ box.innerHTML='<p class="none-yet">Nog niets bewaard. Elke clip waarop je inspreekt komt hier te staan, met al zijn takes.</p>'; return; }
+  const box=$("lib"), scope=libScope(), nS=S.clips.filter(inSession).length;
+  const cl=S.clips.filter(c=>scope==="all"||inSession(c)).sort((a,b)=>(b.playedAt||b.created)-(a.playedAt||a.created));
+  document.querySelectorAll("#libScope button").forEach(b=>{ const on=b.dataset.scope===scope; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on);
+    b.innerHTML=(b.dataset.scope==="sess"?"Deze sessie":"Alle bewaarde clips")+`<span class="n">${b.dataset.scope==="sess"?nS:S.clips.length}</span>`; });
+  renderReelBtn();
+  if (!cl.length){ box.innerHTML=scope==="sess"?'<p class="none-yet">In deze sessie is nog niets opgenomen. Elke clip waarop je inspreekt komt hier te staan, met al zijn takes. Oudere clips zie je onder Alle bewaarde clips.</p>':'<p class="none-yet">Nog niets bewaard. Elke clip waarop je inspreekt komt hier te staan, met al zijn takes.</p>'; return; }
   box.innerHTML="";
   for (const c of cl){
-    const n=S.takes.filter(t=>t.clipId===c.id).length;
+    const n=(scope==="sess"?sessTakes(c):S.takes.filter(t=>t.clipId===c.id)).length;
     const b=document.createElement("button"); b.type="button"; b.className="clip"+(c.id===S.clipId&&S.srcKey===c.srcKey?" cur":"");
     b.innerHTML=`<div class="th">${c.played?'<span class="badge">GESPEELD</span>':""}<span class="len">${fmtS(c.start)}–${fmtS(c.start+c.len)}</span></div><div class="bd"><span class="nm"></span><span class="sub">${n} ${n===1?"take":"takes"}${c.playedAt?" · "+new Date(c.playedAt).toLocaleDateString("nl-NL",{day:"numeric",month:"short"}):""}</span></div>`;
     if (c.thumb) b.querySelector(".th").style.backgroundImage=`url("${c.thumb}")`;
     b.querySelector(".nm").textContent=c.title||"Clip";
-    b.disabled=BUSY.has(S.mode);
+    b.disabled=BUSY.has(S.mode)||!!S.reel;
     b.onclick=()=>openClip(c);
     enter(b,"c:"+c.id); box.appendChild(b);
   }
 }
+// Alle clips (van deze sessie, of alle bewaarde) met hun takes achter elkaar afspelen.
+function renderReelBtn(){
+  const b=$("reelBtn"), items=reelItems(), takes=items.reduce((n,x)=>n+x.takes.length,0);
+  b.setAttribute("aria-pressed",!!S.reel);
+  b.textContent = S.reel ? `■ Stop (clip ${S.reel.i+1} van ${S.reel.items.length})` : items.length ? `▶ Speel alle clips achter elkaar (${items.length} ${items.length===1?"clip":"clips"}, ${takes} ${takes===1?"take":"takes"})` : "▶ Speel alle clips achter elkaar";
+  b.disabled = S.reel ? false : (!items.length || BUSY.has(S.mode) || !!S.exporting);
+}
+function waitPlayDone(){ return new Promise(r=>{ S.playDone=r; }); }
+async function playReel(){
+  if (S.reel){ stopReel(); return; }
+  if (S.mode!=="idle" || S.exporting) return;
+  const items=reelItems(); if (!items.length) return toast("Er zijn nog geen clips met takes om af te spelen.");
+  hideErr(); closeRate(); audioCtx();
+  S.reel={items, i:0, stop:false}; refreshButtons(); sfx("tick");
+  let played=0;
+  for (let i=0;i<items.length && S.reel && !S.reel.stop;i++){
+    S.reel.i=i; refreshButtons();
+    const {clip,takes}=items[i];
+    await openClip(clip);
+    if (!S.reel || S.reel.stop) break;
+    if (S.srcKey!==clip.srcKey || !S.src || !(S.src.duration()>0)){ toast(`Clip ${i+1} kon niet geladen worden en wordt overgeslagen.`); continue; }
+    if (S.mode!=="idle") break;
+    const done=waitPlayDone();
+    await playTake(takes[0],{queue:takes.slice(1)});
+    if (S.mode!=="playing"){ S.playDone=null; continue; } // afspelen lukte niet
+    const natural=await done;
+    if (!natural) break;
+    played++;
+    await wait(TIMING.nextTakeGap);
+  }
+  const stopped=!S.reel || S.reel.stop;
+  S.reel=null; S.playDone=null; refreshButtons(); renderLib();
+  toast(stopped ? "Afspelen gestopt." : `Klaar: ${played} ${played===1?"clip":"clips"} afgespeeld.`);
+  if (!stopped) sfx("done");
+}
+function stopReel(){ if (!S.reel) return; S.reel.stop=true; if (S.mode==="playing") finishPlayback(false); else if (S.playDone){ const d=S.playDone; S.playDone=null; d(false); } refreshButtons(); }
+$("reelBtn").onclick=playReel;
+document.querySelectorAll("#libScope button").forEach(b=>b.onclick=()=>{ if (S.reel) return; S.libScope=b.dataset.scope; renderLib(); });
 async function openClip(c){
   if (S.mode!=="idle") return;
   if (c.len && c.len!==CLIP && R.clipLengths.includes(Math.round(c.len))) setClipLen(Math.round(c.len), true);
@@ -1746,12 +1796,13 @@ function nextStep(){
   switch (S.mode){
     case "arming": return "🎙️ Microfoon aanzetten…";
     case "countdown": return `🎙️ ${who}, maak je klaar…`;
-    case "recording": return S.tailing ? "🎙️ De clip is afgelopen. Maak je zin af, de opname stopt zo vanzelf." : S.paused ? `⏸ Gepauzeerd. Druk op Verder om door te gaan, of op Stop opname.` : `🔴 ${who} neemt op. Druk op Pauze om even stil te zetten, of op Stop opname (spatie) om te stoppen.`;
+    case "recording": return S.paused ? `⏸ Gepauzeerd. Druk op Verder om door te gaan, of op Stop opname.` : `🔴 ${who} neemt op. Druk op Pauze om even stil te zetten, of op Stop opname (spatie) om te stoppen.`;
     case "preview": return S.paused ? "⏸ Gepauzeerd. Druk op Verder, of op Opnemen als je klaar bent." : "👀 Kijk goed: waar ga je zo overheen praten? Klaar? Druk op Opnemen.";
     case "playing": return S.exporting ? "🎬 De video wordt gemaakt. Laat de clip uitspelen." : S.paused ? "⏸ Gepauzeerd. Druk op Verder." : "▶ Terugkijken…";
   }
   if (!S.src) return `👉 ${who} is aan de beurt. Plak eerst een videolink of upload een video.`;
   if (S.ad) return "📺 Er speelt een reclame. Klik rechtsonder in het beeld op Overslaan.";
+  if (S.reel) return `▶ Alle clips achter elkaar: clip ${S.reel.i+1} van ${S.reel.items.length}. Druk op Stop om te stoppen.`;
   if (S.rateTake) return `😂 Geef ${S.rateTake.who} punten: hoe grappig was het? (1 t/m 5)`;
   const why=recordWhy();
   if (why) return `👉 ${who}: ${why}`;
@@ -1765,29 +1816,30 @@ function refreshButtons(){
   const m=S.mode, rec=m==="recording"||m==="countdown", busy=BUSY.has(m);
   const why = recordWhy();
   const rb=$("recBtn");
-  rb.disabled = !S.src || m==="playing" || m==="arming" || !!S.exporting || (!rec && G.done);
+  rb.disabled = !S.src || !!S.reel || m==="playing" || m==="arming" || !!S.exporting || (!rec && G.done);
   rb.classList.toggle("blocked", !rec && !!why && !rb.disabled);
   rb.title = rec ? "Stop de opname (spatie)" : why || "Opnemen (spatie)";
   rb.classList.toggle("stop",rec); $("recLabel").textContent = m==="arming" ? "Even geduld…" : rec ? "Stop opname" : "Opnemen";
   if (!busy || m==="arming" || m==="countdown") S.paused=false;
-  const pausable=(m==="recording"||m==="preview"||m==="playing")&&!S.exporting&&!S.tailing&&!S.tailPlay;
+  const pausable=(m==="recording"||m==="preview"||m==="playing")&&!S.exporting;
   $("pauseBtn").disabled=!pausable; $("pauseLabel").textContent=S.paused?"▶ Verder":"⏸ Pauze"; $("pauseBtn").title=S.paused?"Ga verder (P)":"Zet de clip even stil (P)";
   $("playLast").disabled=busy||!S.src||!clipTakes().length;
-  $("stopBtn").disabled=!busy||m==="arming";
-  for (const id of ["randClip","preview","saveClip"]) $(id).disabled=!S.src||busy;
+  $("stopBtn").disabled=(!busy&&!S.reel)||m==="arming";
+  for (const id of ["randClip","preview","saveClip"]) $(id).disabled=!S.src||busy||!!S.reel;
   $("preview").classList.toggle("btn-cue", !!S.src && !isWatched());
   $("showAll").disabled=busy;
   $("acctBtn").disabled=busy; $("pname").disabled=busy; $("newGameBtn").disabled=rec||m==="arming"; $("endGameBtn").disabled=rec||m==="arming";
   $("lamp").classList.toggle("on",m==="recording"&&!S.paused);
   $("screen").classList.toggle("rec",rec); $("screen").classList.toggle("play",m==="playing"||m==="preview");
   $("tag").hidden=!(m==="recording"||m==="playing"||m==="preview");
-  $("tag").textContent=S.tailing?"🎙️ ZIN AFMAKEN":S.paused?"⏸ PAUZE":S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
+  $("tag").textContent=S.paused?"⏸ PAUZE":S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
   $("tag").classList.toggle("play",m!=="recording"); $("tag").classList.toggle("pause",S.paused);
   $("remain").hidden=!(rec||m==="playing"||m==="preview");
   $("tc").classList.toggle("live",m==="recording");
   $("track").style.opacity=busy?.6:1; renderLens();
   $("players").querySelectorAll(".player").forEach(p=>p.classList.toggle("locked",busy));
-  $("lib").querySelectorAll(".clip").forEach(b=>{ b.disabled=busy; });
+  $("lib").querySelectorAll(".clip").forEach(b=>{ b.disabled=busy||!!S.reel; });
+  renderReelBtn();
   paintClock();
   if (performance.now()>=hintHold){ const txt=nextStep(); if ($("hint").textContent!==txt) $("hint").textContent=txt; }
 }
@@ -1798,7 +1850,7 @@ function rollDice(){
   $("dice").classList.remove("roll"); void $("dice").offsetWidth; $("dice").classList.add("roll"); sfx("tick");
 }
 function resetChallenge(){ const el=$("challenge"); el.className="challenge none"; el.textContent="Dobbel voor een gekke opdracht, of spreek gewoon vrij in."; }
-function stopEverything(){ if (S.mode==="playing") finishPlayback(false); else if (S.mode==="preview") stopPreview(); else stopRecording(); S.queue=[]; }
+function stopEverything(){ if (S.reel){ stopReel(); return; } if (S.mode==="playing") finishPlayback(false); else if (S.mode==="preview") stopPreview(); else stopRecording(); S.queue=[]; }
 
 // ---------- Invoer ----------
 // Geen echte formulieren: die worden in sommige voorbeeldweergaven geblokkeerd. Enter en knoppen doen hetzelfde.
@@ -1827,7 +1879,7 @@ $("randClip").onclick=()=>newClip(true);
 $("preview").onclick=()=>startPreview();
 $("pauseBtn").onclick=togglePause;
 function togglePause(){
-  const m=S.mode; if (!S.src || S.exporting || S.tailing || S.tailPlay || !(m==="recording"||m==="preview"||m==="playing")) return;
+  const m=S.mode; if (!S.src || S.exporting || !(m==="recording"||m==="preview"||m==="playing")) return;
   S.paused=!S.paused;
   if (S.paused) S.src.pause(); else S.src.play();
   refreshButtons();
@@ -1870,7 +1922,7 @@ document.addEventListener("keydown",e=>{
   else if (k==="n"&&!$("randClip").disabled) $("randClip").click();
   else if (k==="d") rollDice();
   else if (k>="1"&&k<="5"&&S.rateTake) rate(S.rateTake,+k);
-  else if (k==="escape"&&BUSY.has(S.mode)) stopEverything();
+  else if (k==="escape"&&(BUSY.has(S.mode)||S.reel)) stopEverything();
 });
 // Tab sluiten of herladen tijdens een opname: eerst waarschuwen.
 window.addEventListener("beforeunload",e=>{ if (S.mode==="recording"||S.mode==="countdown"||S.exporting){ e.preventDefault(); e.returnValue=""; } });
@@ -1879,8 +1931,8 @@ document.addEventListener("visibilitychange",()=>{ if (document.hidden && (S.mod
 
 setInterval(()=>{
   if (!S.src) return; const now=S.src.time();
-  if (S.mode==="recording"){ if (now>=clipEnd()-TIMING.recEndSlack) clipFinished(); }
-  else if (S.mode==="playing"&&S.playing){ if (!S.tailPlay){ checkSync(); if (now>=S.playing.end+TIMING.playEndSlack) videoEndedInPlay(); } }
+  if (S.mode==="recording"){ if (now>=clipEnd()-TIMING.recEndSlack) stopRecording(); }
+  else if (S.mode==="playing"&&S.playing){ checkSync(); if (now>=S.playing.end+TIMING.playEndSlack) finishPlayback(true); }
   else if (S.mode==="preview"){ if (now>=clipEnd()) stopPreview(); }
   // Reclame: rechtsonder in het beeld blijft klikbaar. Is niet te zien of er een reclame speelt, dan blijft dat gat altijd open.
   const ad=S.src.inAd?.(); const hole=S.src.kind==="yt"&&(ad===undefined||ad===true);
