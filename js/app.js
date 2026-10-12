@@ -318,7 +318,8 @@ const SFX = {
   error:  ()=>{ tone(220,.12,.1); tone(180,.18,.1,.13); },
 };
 // Geluid pas na de volgende frame: eerst zie je de reactie, dan hoor je hem (audio opstarten kan even duren).
-function sfx(name, arg){ if (!S.sound) return; requestAnimationFrame(()=>setTimeout(()=>{ try { SFX[name](arg); } catch {} },0)); }
+function sfx(name, arg){ if (!S.sound || navigator.userActivation?.hasBeenActive===false) return; // zonder klik mag een browser nog geen geluid maken
+  requestAnimationFrame(()=>setTimeout(()=>{ try { SFX[name](arg); } catch {} },0)); }
 
 // ---------- Status van de video ----------
 function onState(st,msg){
@@ -566,7 +567,7 @@ function showResults(){
   for (const p of st.list){ const li=document.createElement("li"); li.className=p.rank===1?"win":"";
     li.innerHTML=`<span class="pl">${p.rank===1?"🥇":p.rank===2?"🥈":p.rank===3?"🥉":p.rank+"."}</span><span class="nm"></span><span class="pts">${p.pts} ${p.pts===1?"punt":"punten"}</span>`;
     li.querySelector(".nm").textContent=p.name; ol.appendChild(li); }
-  $("resultDlg").showModal(); sfx("fanfare"); confetti(90);
+  $("resultDlg").returnValue=""; $("resultDlg").showModal(); sfx("fanfare"); confetti(90);
 }
 function openSettings(){
   closeDialogs(); $("soundOn").checked=S.sound; renderSettings(); $("setDlg").showModal();
@@ -580,13 +581,13 @@ function closeDialogs(){ document.querySelectorAll("dialog[open]").forEach(d=>d.
 
 $("startAdd").onclick=()=>addPlayer($("startName"),$("startWhy"));
 $("startName").addEventListener("keydown",e=>{ if (e.key==="Enter"){ e.preventDefault(); addPlayer($("startName"),$("startWhy")); } });
-$("startGo").onclick=e=>{
-  e.preventDefault();
+$("startGo").onclick=()=>{
   dispatch({type:"newGame", rounds:startRounds});
   // nieuwe partij: nog niets gespeeld, dus ook geen uitslag
   $("startDlg").close(); closeRate(); renderTakes();
   toast(`🎤 ${E.current(G).name} begint!${G.rounds?` ${roundLabel(G.rounds)}.`:""}`); bump($("nowTurn"));
 };
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>b.closest("dialog").close(b.dataset.close));
 $("resultDlg").addEventListener("close",()=>{ if ($("resultDlg").returnValue==="again") openStart(); });
 $("helpDlg").addEventListener("close",()=>{ const first=!LS.get(KEYS.help,false); LS.set(KEYS.help,true); if (first && !S.resumed) openStart(); });
 $("soundOn").onchange=()=>{ S.sound=$("soundOn").checked; LS.set(KEYS.sound,S.sound); if (S.sound) sfx("tick"); };
@@ -725,7 +726,10 @@ function resetChallenge(){ const el=$("challenge"); el.className="challenge none
 function stopEverything(){ if (S.mode==="playing") finishPlayback(false); else if (S.mode==="preview") stopPreview(); else stopRecording(); S.queue=[]; }
 
 // ---------- Invoer ----------
-$("urlForm").addEventListener("submit",e=>{ e.preventDefault(); const i=parseSource($("url").value); $("url").blur(); loadSource(i); });
+// Geen echte formulieren: die worden in sommige voorbeeldweergaven geblokkeerd. Enter en knoppen doen hetzelfde.
+const loadUrl=()=>{ const i=parseSource($("url").value); $("url").blur(); loadSource(i); };
+$("loadBtn").onclick=loadUrl;
+$("url").addEventListener("keydown",e=>{ if (e.key==="Enter"){ e.preventDefault(); loadUrl(); } });
 $("pickFile").onclick=()=>$("file").click();
 $("file").onchange=()=>{ const f=$("file").files[0]; if (f) loadSource({kind:"file",blob:f,name:f.name}); $("file").value=""; };
 const srcBox=$("source");
@@ -752,7 +756,9 @@ document.querySelectorAll("#lens button").forEach(b=>b.onclick=()=>setClipLen(+b
   $(i).oninput=()=>{ $(o).textContent=$(i).value+"%"; LS.set(KEYS[i],$(i).value);
     if (i==="recVol"&&S.mode==="recording") S.src.setVolume(+$(i).value);
     if (i==="voiceVol"&&S.voiceGain) S.voiceGain.gain.value=+$(i).value/100; }; });
-$("addPlayer").addEventListener("submit",e=>{ e.preventDefault(); if (!BUSY.has(S.mode)) addPlayer($("pname")); });
+const addInGame=()=>{ if (!BUSY.has(S.mode)) addPlayer($("pname")); };
+$("addBtn").onclick=addInGame;
+$("pname").addEventListener("keydown",e=>{ if (e.key==="Enter"){ e.preventDefault(); addInGame(); } });
 document.addEventListener("keydown",e=>{
   if (e.target.closest("input,textarea,select")||e.metaKey||e.ctrlKey||e.altKey||document.querySelector("dialog[open]")) return;
   const k=e.key.toLowerCase();

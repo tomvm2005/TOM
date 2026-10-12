@@ -163,7 +163,7 @@ try {
     const title = await page.textContent("#resultTitle");
     check("na 3 rondes verschijnt de uitslag met de winnaar", g.done && /Cas wint/.test(title), `${title} (${g.players.map(p => p.name + " " + p.pts).join(", ")})`);
     await page.screenshot({ path: path.join(OUT, "5-uitslag.png") });
-    await page.click('#resultDlg button[value="close"]');
+    await page.click('#resultDlg button[data-close="close"]');
     check("na de partij kan je niet meer opnemen tot een nieuwe partij", await page.isDisabled("#recBtn") && /afgelopen/.test(await page.textContent("#hint")));
     await page.click("#newGameBtn"); await page.click("#startGo");
     g = await S(page, () => window.__game());
@@ -207,9 +207,9 @@ try {
     await page.setInputFiles("#file", BAD);
     await page.waitForSelector("#err:not([hidden])");
     check("kapot videobestand: duidelijke melding", /kan je browser niet afspelen/.test(await page.textContent("#err")));
-    await page.fill("#url", "https://www.tiktok.com/@iemand/video/123"); await page.click('#urlForm button[type="submit"]');
+    await page.fill("#url", "https://www.tiktok.com/@iemand/video/123"); await page.click("#loadBtn");
     check("TikTok-link: uitleg om te downloaden en te uploaden", /Download de video/.test(await page.textContent("#err")));
-    await page.fill("#url", "dit is geen link"); await page.click('#urlForm button[type="submit"]');
+    await page.fill("#url", "dit is geen link"); await page.click("#loadBtn");
     check("ongeldige link: duidelijke melding", /geen werkende videolink/.test(await page.textContent("#err")), await page.textContent("#err"));
     await page.context().close();
   }
@@ -242,6 +242,24 @@ try {
     const { page } = await open(browser, { init: () => { try { localStorage.setItem("ss.players", "{kapot"); localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
     check("kapotte opslag: spel start gewoon met het startscherm", await page.locator("#startDlg[open]").count() === 1);
     await page.context().close();
+  }
+
+  // ===== Voorbeeldweergave: pagina in een afgeschermd frame (alleen scripts, geen formulieren of opslag) =====
+  {
+    const ctx = await browser.newContext(); const page = await ctx.newPage();
+    let html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    for (const f of ["engine", "app"]) html = html.replace(`<script src="js/${f}.js"></script>`, () => `<script>${fs.readFileSync(path.join(ROOT, "js", f + ".js"), "utf8")}</script>`);
+    await page.setContent('<iframe id="f" sandbox="allow-scripts" style="width:1200px;height:850px;border:0"></iframe>');
+    await page.$eval("#f", (f, h) => { f.srcdoc = h; }, html);
+    const fr = await (await page.waitForSelector("#f")).contentFrame();
+    await fr.waitForSelector("#helpDlg[open]");
+    await fr.click("#helpOk");
+    check("afgeschermde voorbeeldweergave: Begrepen sluit de uitleg en opent het startscherm", await fr.waitForSelector("#startDlg[open]", { timeout: 2000 }).then(() => true, () => false));
+    await fr.fill("#startName", "Iris"); await fr.press("#startName", "Enter"); await fr.click("#startGo");
+    check("afgeschermde voorbeeldweergave: partij start", (await fr.textContent("#turnName")) === "Iris" && await fr.locator("dialog[open]").count() === 0);
+    await fr.fill("#url", "dit is geen link"); await fr.press("#url", "Enter");
+    check("afgeschermde voorbeeldweergave: Enter in het linkveld werkt", /geen werkende videolink/.test(await fr.textContent("#err")));
+    await ctx.close();
   }
 
   // ===== 3. Mobiel formaat =====

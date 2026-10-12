@@ -334,12 +334,12 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 
   <div class="mobibar" id="mobibar" aria-hidden="true"></div>
   <section class="source" id="source">
-    <form class="urlbar" id="urlForm">
+    <div class="urlbar" id="urlForm" role="search">
       <input id="url" type="text" inputmode="url" autocomplete="off" placeholder="Plak een videolink: YouTube, Vimeo of een .mp4-link" aria-label="Videolink">
-      <button class="btn-cue" type="submit">Laad video</button>
+      <button class="btn-cue" type="button" id="loadBtn">Laad video</button>
       <button type="button" id="pickFile">Upload video</button>
       <input type="file" id="file" accept="video/*" hidden>
-    </form>
+    </div>
     <div class="chips"><span><b>Werkt met:</b> YouTube (ook Shorts) · Vimeo · directe videolinks (.mp4, .webm, .mov) · je eigen videobestanden</span><span>Of sleep een video hierheen.</span></div>
   </section>
 
@@ -396,10 +396,10 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         <h2>Partij <small id="roundLbl">Ronde 1 van 3</small></h2>
         <div class="nowturn" id="nowTurn"><span>Aan de beurt</span><b id="turnName">Speler 1</b></div>
         <div class="players" id="players" role="list" aria-label="Spelers en scores"></div>
-        <form class="addp" id="addPlayer">
+        <div class="addp" id="addPlayer">
           <input id="pname" placeholder="Naam toevoegen" maxlength="24" aria-label="Naam van speler">
-          <button type="submit" aria-label="Speler toevoegen">+</button>
-        </form>
+          <button type="button" id="addBtn" aria-label="Speler toevoegen">+</button>
+        </div>
         <div class="gamebtns"><button class="sm" id="newGameBtn" type="button">🔄 Nieuwe partij</button><button class="sm" id="endGameBtn" type="button">🏁 Uitslag</button></div>
       </div>
 
@@ -430,7 +430,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 <div class="confetti" id="confetti" aria-hidden="true"></div>
 
 <dialog id="startDlg" aria-labelledby="startTitle">
-  <form method="dialog" class="dlg">
+  <div class="dlg">
     <h2 id="startTitle">Nieuwe partij</h2>
     <p class="sub">Wie doen er mee? Iedereen spreekt om de beurt een clip in, de rest geeft punten.</p>
     <div class="players" id="startPlayers" role="list" aria-label="Spelers"></div>
@@ -438,32 +438,32 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
     <p class="why" id="startWhy" aria-live="polite"></p>
     <fieldset class="seg-wrap"><legend>Hoeveel rondes?</legend><div class="lens seg" id="roundSeg"></div></fieldset>
     <fieldset class="seg-wrap"><legend>Hoe lang is een clip?</legend><div class="lens seg" id="lenSeg"></div></fieldset>
-    <div class="dlg-btns"><button class="btn-cue" id="startGo" value="go">Start de partij</button></div>
-  </form>
+    <div class="dlg-btns"><button type="button" class="btn-cue" id="startGo">Start de partij</button></div>
+  </div>
 </dialog>
 
 <dialog id="resultDlg" aria-labelledby="resultTitle">
-  <form method="dialog" class="dlg result">
+  <div class="dlg result">
     <div class="trophy" aria-hidden="true">🏆</div>
     <h2 id="resultTitle">Uitslag</h2>
     <ol class="podium" id="podium"></ol>
-    <div class="dlg-btns"><button value="close">Takes terugkijken</button><button class="btn-cue" value="again" id="againBtn">Nieuwe partij</button></div>
-  </form>
+    <div class="dlg-btns"><button type="button" data-close="close">Takes terugkijken</button><button type="button" class="btn-cue" data-close="again" id="againBtn">Nieuwe partij</button></div>
+  </div>
 </dialog>
 
 <dialog id="setDlg" aria-labelledby="setTitle">
-  <form method="dialog" class="dlg">
+  <div class="dlg">
     <h2 id="setTitle">Instellingen</h2>
     <label class="switch"><input type="checkbox" id="soundOn" checked> <span>Geluidseffecten (aftellen, punten, winnaar)</span></label>
     <fieldset class="seg-wrap"><legend>Rondes in deze partij</legend><div class="lens seg" id="setRoundSeg"></div></fieldset>
     <fieldset class="seg-wrap"><legend>Cliplengte</legend><div class="lens seg" id="setLenSeg"></div></fieldset>
     <div class="dlg-btns left"><button type="button" class="sm" id="resetScores">Scores op nul</button><button type="button" class="sm" id="replayHelp">Uitleg opnieuw</button></div>
-    <div class="dlg-btns"><button class="btn-cue" value="close">Klaar</button></div>
-  </form>
+    <div class="dlg-btns"><button type="button" class="btn-cue" data-close="close">Klaar</button></div>
+  </div>
 </dialog>
 
 <dialog id="helpDlg" aria-labelledby="helpTitle">
-  <form method="dialog" class="dlg help">
+  <div class="dlg help">
     <h2 id="helpTitle">Zo speel je Stemmenstudio</h2>
     <ol class="howto">
       <li><b>🔗 Kies een video</b> Plak een link (YouTube, Vimeo, .mp4) of upload een filmpje.</li>
@@ -472,8 +472,8 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
       <li><b>😂 Kijk terug en geef punten</b> Iedereen hoort jouw stem. De groep geeft 1 tot 5 punten, daarna is de volgende aan de beurt.</li>
     </ol>
     <p class="sub">Na de laatste ronde zie je wie er wint. Tip: met een koptelefoon neemt de microfoon het geluid van de video niet mee.</p>
-    <div class="dlg-btns"><button class="btn-cue" value="close" id="helpOk">Begrepen!</button></div>
-  </form>
+    <div class="dlg-btns"><button type="button" class="btn-cue" data-close="close" id="helpOk">Begrepen!</button></div>
+  </div>
 </dialog>
 
 <script src="js/engine.js"></script>
