@@ -363,16 +363,31 @@ try {
     await page.click("#recBtn");
     await page.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 });
     check("opnemen vanuit bekijken start de opname", await mode(page) === "recording");
-    // praat door tot na het einde van de clip: de opname stopt pas na de extra seconden
-    await page.waitForFunction(() => window.__ss.tailing === true, null, { timeout: 15000 });
+    // de opname stopt precies aan het einde van de clip en de microfoon gaat meteen uit
     const t0 = Date.now();
-    check("clip is klaar: beeld staat stil, opname loopt nog even door", await S(page, () => window.__ss.rec.state === "recording" && window.__ss.src.el.paused) && /AFMAKEN/.test(await page.textContent("#tag")));
-    await page.waitForFunction(() => window.__ss.takes.length === 1, null, { timeout: 15000 });
+    await page.waitForFunction(() => window.__ss.takes.length === 1, null, { timeout: 20000 });
     const waited = (Date.now() - t0) / 1000;
-    const tk = await S(page, () => { const k = window.__ss.takes[0]; return { buf: k.buffer.duration, off: k.offset, vid: k.end - k.start }; });
-    check("de opname bevat de extra seconden na de clip", tk.buf - (tk.off + tk.vid) > 2, `opname ${tk.buf.toFixed(2)} s, clip ${(tk.off + tk.vid).toFixed(2)} s, wachttijd ${waited.toFixed(1)} s`);
-    check("de stem wordt bij terugkijken niet afgekapt: pas klaar na de extra seconden", await page.waitForFunction(() => window.__ss.mode === "idle", null, { timeout: 15000 }).then(() => true, () => false));
+    const tk = await S(page, () => { const k = window.__ss.takes[0]; return { buf: k.buffer.duration, off: k.offset, vid: k.end - k.start, st: window.__ss.stream, clipLen: window.__ss.takes[0].end - window.__ss.takes[0].start }; });
+    check("de opname stopt aan het einde van de clip (10 s), niet later", Math.abs(tk.buf - (tk.off + tk.vid)) < 0.5 && tk.vid > 8.5 && tk.vid <= 10.1, `opname ${tk.buf.toFixed(2)} s, clip ${(tk.off + tk.vid).toFixed(2)} s, beeld ${tk.vid.toFixed(2)} s`);
+    check("de microfoon is daarna uitgeschakeld", tk.st === null && await mode(page) !== "recording");
     await page.keyboard.press("3"); await sleep(300);
+
+    // bewaarde clips: deze sessie, met een knop die alles achter elkaar afspeelt
+    await page.click("#saveClip").catch(() => {}); await sleep(300);
+    const lib = await S(page, () => ({ scope: document.querySelector('#libScope button[aria-pressed="true"]')?.dataset.scope, clips: document.querySelectorAll("#lib .clip").length, btn: document.getElementById("reelBtn").textContent, en: !document.getElementById("reelBtn").disabled }));
+    check("bewaarde clips tonen standaard deze sessie, met een knop om alles af te spelen", lib.scope === "sess" && lib.clips >= 1 && lib.en, JSON.stringify(lib));
+    await page.click("#reelBtn");
+    await page.waitForFunction(() => window.__ss.reel && window.__ss.mode === "playing", null, { timeout: 8000 });
+    check("de knop speelt de clips achter elkaar af (opnemen is dan geblokkeerd)", await page.isDisabled("#recBtn") && /Stop/.test(await page.textContent("#reelBtn")));
+    const fin = await page.waitForFunction(() => !window.__ss.reel, null, { timeout: 25000 }).then(() => true, () => false);
+    check("na de laatste take stopt het afspelen vanzelf", fin && await mode(page) === "idle" && /Klaar: 1 clip/.test(await page.textContent("#toast")), await page.textContent("#toast"));
+    await page.click("#reelBtn");
+    await page.waitForFunction(() => window.__ss.reel && window.__ss.mode === "playing", null, { timeout: 8000 });
+    await sleep(500); await page.click("#stopBtn"); await sleep(400);
+    check("Stop breekt het achter elkaar afspelen af", await S(page, () => !window.__ss.reel && window.__ss.mode === "idle") && /gestopt/.test(await page.textContent("#toast")));
+    await page.click('#libScope button[data-scope="all"]'); await sleep(200);
+    check("met Alle zie je ook clips van eerdere sessies", await S(page, () => document.querySelector('#libScope button[data-scope="all"]').getAttribute("aria-pressed") === "true"));
+    await page.click('#libScope button[data-scope="sess"]');
 
     // automatisch bijwerken: nieuwe versie op de server -> pagina ververst zichzelf, wacht tot er niet meer gespeeld wordt
     let v = 1;
