@@ -1,0 +1,13 @@
+{
+  "name": "stemmenstudio",
+  "private": true,
+  "description": "Voice-over party game. Geen build nodig: index.html werkt zo op GitHub Pages.",
+  "scripts": {
+    "test": "node --test 'tests/*.test.js'",
+    "test:e2e": "node tests/e2e.mjs",
+    "start": "npx http-server -p 8080 -c-1 ."
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
