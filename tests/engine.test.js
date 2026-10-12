@@ -287,7 +287,8 @@ test("opnemen mag pas als er een video is en de clip bekeken is", () => {
   assert.match(E.recordBlock({ ...ok, hasSource: false }), /Laad eerst/);
   assert.match(E.recordBlock({ ...ok, watched: false }), /Bekijk eerst/);
   assert.match(E.recordBlock({ ...ok, mode: "playing" }), /afgespeeld/);
-  assert.match(E.recordBlock({ ...ok, mode: "preview" }), /speelt nog/);
+  assert.equal(E.recordBlock({ ...ok, mode: "preview" }), "", "opnemen mag ook terwijl de clip speelt");
+  assert.equal(E.RULES.tailSecs, 3, "na het einde van de clip nog even doorpraten");
   assert.match(E.recordBlock({ ...ok, done: true }), /afgelopen/);
   assert.equal(E.recordBlock({ ...ok, mode: "recording" }), "", "tijdens opnemen kan je altijd stoppen");
 });

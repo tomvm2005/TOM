@@ -577,6 +577,7 @@ const RULES = Object.freeze({
   maxName: 24,
   freeStep: 5,             // stapgrootte (s) bij het zoeken naar een stuk dat nog niet gespeeld is
   clipMatchTolerance: 1,   // twee clips met een begin binnen 1 s van elkaar zijn dezelfde clip
+  tailSecs: 3,             // s extra opnemen na het einde van de clip, om je zin af te maken
   placeholderName: "Speler 1",
 });
 
@@ -797,8 +798,7 @@ function recordBlock(ctx) {
   if (ctx.mode === "countdown" || ctx.mode === "recording") return "";
   if (ctx.exporting) return "Even wachten: de video wordt gemaakt.";
   if (ctx.mode === "playing") return "Even wachten: er wordt een take afgespeeld.";
-  if (ctx.mode === "preview") return "Even wachten: de clip speelt nog. Stop hem eerst.";
-  if (ctx.mode && ctx.mode !== "idle") return "Even wachten…";
+  if (ctx.mode && ctx.mode !== "idle" && ctx.mode !== "preview") return "Even wachten…"; // tijdens bekijken mag je meteen opnemen
   if (ctx.done) return "De partij is afgelopen. Start een nieuwe partij.";
   if (!ctx.watched) return "Bekijk eerst de clip, dan weet je waar je overheen praat.";
   return "";
@@ -934,6 +934,10 @@ const TIMING = {
   durationPolls: 40, durationPoll: 150, // wachten tot de videolengte bekend is
   playerTimeout: 15000, // ms om de YouTube-speler te laden
   doubleClick: 450,     // ms: een tweede klik op Opnemen binnen deze tijd telt niet (geen per ongeluk gestopte opname)
+  updateEvery: 60000,   // ms tussen twee controles op een nieuwe versie van het spel
+  updateRetry: 4000,    // ms wachten als een nieuwe versie klaarstaat maar er nog gespeeld of opgenomen wordt
+  updateMinGap: 90000,  // ms minimaal tussen twee automatische verversingen (voorkomt een lus)
+  updateReload: 1500,   // ms dat "nieuwe versie" in beeld blijft voor de pagina ververst
 };
 const KEYS = { len: "ss.len", game: "ss.players", sound: "ss.sound", help: "ss.helpSeen", watchVol: "ss.watchVol", recVol: "ss.recVol2", voiceVol: "ss.voiceVol", captions: "ss.captions" };
 const FACES = [["🥱","1"],["🙂","2"],["😄","3"],["😂","4"],["🤣","5"]];
@@ -1272,12 +1276,26 @@ function newClip(announce=true){
   if (announce){ sfx("tick"); if (!allPlayed) toast("Nieuwe clip: "+fmtS(S.clipStart)+" – "+fmtS(clipEnd())); }
 }
 const canSeek = () => !!S.src && !S.exporting && (S.mode==="idle"||S.mode==="preview");
+// Wat de clipbalk laat zien: bij kiezen de hele video, tijdens bekijken, opnemen en terugkijken alleen de clip (of take).
+// Zo loopt het zwarte lijntje precies gelijk met de timer naast de stopknop.
+function trackView(){
+  const d=dur(), m=S.mode;
+  if (m==="playing" && S.playing) return {clip:true, start:S.playing.start, len:Math.max(.001,S.playing.end-S.playing.start)};
+  if (m==="preview"||m==="recording"||m==="countdown"||m==="arming") return {clip:true, start:S.clipStart, len:Math.max(.001,clipEnd()-S.clipStart)};
+  return {clip:false, start:0, len:d||1};
+}
 function renderTrack(){
-  const tr=$("track"), d=dur();
+  const tr=$("track"), d=dur(), v=trackView(); S.trackKey=v.clip+":"+v.start+":"+v.len;
   tr.querySelectorAll(".used,.win,.head").forEach(n=>n.remove());
-  $("durLbl").textContent = d ? fmtS(d) : "–";
+  tr.classList.toggle("clipview",v.clip);
+  $("durLbl").textContent = v.clip ? fmtS(v.len) : d ? fmtS(d) : "–";
   $("range").textContent = S.src ? `${fmtS(S.clipStart)} – ${fmtS(clipEnd())}` : "–";
   if (!d) return;
+  if (v.clip){
+    const w=document.createElement("div"); w.className="win"; w.style.left="0"; w.style.width="100%"; tr.appendChild(w);
+    const h=document.createElement("div"); h.className="head"; h.id="phead"; h.title="Sleep om door de clip te spoelen"; tr.appendChild(h);
+    paintClock(); return;
+  }
   for (const [a,b] of E.usedRanges(S.clips, S.srcKey)){ const u=document.createElement("div"); u.className="used"; u.style.left=(a/d*100)+"%"; u.style.width=(Math.min(b,d)-a)/d*100+"%"; u.title="Al gespeeld"; tr.appendChild(u); }
   const w=document.createElement("div"); w.className="win"; w.style.left=(S.clipStart/d*100)+"%"; w.style.width=((clipEnd()-S.clipStart)/d*100)+"%"; w.textContent = d>CLIP*2.5 ? fmtS(CLIP) : ""; tr.appendChild(w);
   const h=document.createElement("div"); h.className="head"; h.id="phead"; h.title="Sleep om door de clip te spoelen"; tr.appendChild(h);
@@ -1285,7 +1303,7 @@ function renderTrack(){
 }
 (() => {
   const tr=$("track"); let drag=null;
-  const at = e => { const r=tr.getBoundingClientRect(); return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*dur(); };
+  const at = e => { const r=tr.getBoundingClientRect(), f=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)), v=trackView(); return v.start+f*v.len; };
   // Het zwarte lijntje is de plek in de clip: verslepen spoelt binnen de clip. Een ander stuk kiezen doe je met het blauwe blok.
   const seekTo = t => { t=Math.max(S.clipStart,Math.min(t,clipEnd()-.1)); S.scrub=t; S.src.seek(t); };
   tr.addEventListener("pointerdown",e=>{
@@ -1358,14 +1376,14 @@ function onState(st,msg){
     showErr(msg); return;
   }
   if (S.mode==="recording" && S.offset!==null && S.rec){ // de opname loopt precies zolang de video speelt: pauze of haperen houdt stem en beeld gelijk
-    if (st==="paused" && S.rec.state==="recording") S.rec.pause();
+    if (st==="paused" && S.rec.state==="recording" && !S.tailing) S.rec.pause();
     if (st==="playing" && S.rec.state==="paused") S.rec.resume();
   }
   if (S.mode==="recording"){
     if (st==="playing" && S.offset===null && !S.src.inAd?.()){ S.offset=(performance.now()-S.t0)/1000; S.recStart=S.src.time(); }
-    if (st==="ended") stopRecording();
+    if (st==="ended") clipFinished();
   }
-  if (S.mode==="playing"){ if (st==="playing") startVoice(); else stopVoice(); if (st==="ended") finishPlayback(true); }
+  if (S.mode==="playing"){ if (st==="playing") startVoice(); else if (!S.tailPlay) stopVoice(); if (st==="ended") videoEndedInPlay(); }
   if (S.mode==="preview" && st==="ended") stopPreview();
 }
 
@@ -1386,7 +1404,7 @@ async function startRecording(){
     return;
   }
   if (S.mode!=="arming") return; // intussen gestopt
-  S.mode="countdown"; S.offset=null; S.chunks=[]; S.challenge=S.currentChallenge; S.recPlayerId=E.current(G).id;
+  S.mode="countdown"; S.offset=null; S.chunks=[]; S.tailing=false; S.challenge=S.currentChallenge; S.recPlayerId=E.current(G).id;
   S.src.pause(); S.src.seek(S.clipStart);
   const mime=["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg"].find(m=>window.MediaRecorder?.isTypeSupported?.(m))||"";
   try { S.rec=new MediaRecorder(S.stream, mime?{mimeType:mime}:undefined); } catch { S.mode="idle"; refreshButtons(); showErr("Opnemen wordt niet ondersteund in deze browser."); return; }
@@ -1402,7 +1420,24 @@ function stopRecording(){
   if (S.mode==="arming"){ S.mode="idle"; refreshButtons(); return; }
   if (S.mode==="countdown"){ S.mode="idle"; $("overlay").innerHTML=""; S.rec.onstop=null; try{ S.rec.stop(); }catch{} refreshButtons(); return; }
   if (S.mode!=="recording") return;
-  S.recEnd=Math.min(S.src.time(), clipEnd()); S.src.pause(); S.mode="idle"; try{ S.rec.stop(); }catch{} restoreVolume(); refreshButtons(); sfx("done");
+  clearTimeout(S.tailTimer); if (!S.tailing) S.recEnd=Math.min(S.src.time(), clipEnd());
+  S.tailing=false; S.src.pause(); S.mode="idle"; try{ S.rec.stop(); }catch{} restoreVolume(); refreshButtons(); sfx("done");
+}
+// De clip is afgelopen: het beeld staat stil, maar de opname loopt nog even door zodat je je zin kan afmaken.
+function clipFinished(){
+  if (S.mode!=="recording" || S.tailing) return;
+  S.tailing=true; S.recEnd=Math.min(S.src.time(), clipEnd()); S.paused=false; S.src.pause();
+  S.tailTimer=setTimeout(stopRecording, R.tailSecs*1000);
+  refreshButtons(); sfx("tick");
+}
+// Terugkijken: is er na het einde van het beeld nog stem, dan blijft het beeld staan tot die stem klaar is.
+function videoEndedInPlay(){
+  const t=S.playing; if (S.mode!=="playing" || !t || S.tailPlay) return;
+  const tail=t.buffer ? t.buffer.duration-E.voicePos(t,t.end) : 0;
+  if (tail<0.3){ finishPlayback(true); return; }
+  S.tailPlay=true; S.src.pause();
+  S.tailTimer=setTimeout(()=>finishPlayback(true),Math.min(tail,R.tailSecs+1)*1000+TIMING.playEndSlack*1000);
+  refreshButtons();
 }
 async function saveTake(){
   const blob=new Blob(S.chunks,{type:S.rec.mimeType||"audio/webm"});
@@ -1476,6 +1511,7 @@ function checkSync(){
 }
 function finishPlayback(natural){
   if (S.mode!=="playing") return;
+  clearTimeout(S.tailTimer); S.tailPlay=false;
   const t=S.playing; stopVoice(); S.src.pause(); S.mode="idle"; S.playing=null; restoreVolume();
   if (S.exporting) endExport(natural);
   refreshButtons(); renderTakes();
@@ -1710,8 +1746,8 @@ function nextStep(){
   switch (S.mode){
     case "arming": return "🎙️ Microfoon aanzetten…";
     case "countdown": return `🎙️ ${who}, maak je klaar…`;
-    case "recording": return S.paused ? `⏸ Gepauzeerd. Druk op Verder om door te gaan, of op Stop opname.` : `🔴 ${who} neemt op. Druk op Pauze om even stil te zetten, of op Stop opname (spatie) om te stoppen.`;
-    case "preview": return S.paused ? "⏸ Gepauzeerd. Druk op Verder." : "👀 Kijk goed: waar ga je zo overheen praten?";
+    case "recording": return S.tailing ? "🎙️ De clip is afgelopen. Maak je zin af, de opname stopt zo vanzelf." : S.paused ? `⏸ Gepauzeerd. Druk op Verder om door te gaan, of op Stop opname.` : `🔴 ${who} neemt op. Druk op Pauze om even stil te zetten, of op Stop opname (spatie) om te stoppen.`;
+    case "preview": return S.paused ? "⏸ Gepauzeerd. Druk op Verder, of op Opnemen als je klaar bent." : "👀 Kijk goed: waar ga je zo overheen praten? Klaar? Druk op Opnemen.";
     case "playing": return S.exporting ? "🎬 De video wordt gemaakt. Laat de clip uitspelen." : S.paused ? "⏸ Gepauzeerd. Druk op Verder." : "▶ Terugkijken…";
   }
   if (!S.src) return `👉 ${who} is aan de beurt. Plak eerst een videolink of upload een video.`;
@@ -1729,12 +1765,12 @@ function refreshButtons(){
   const m=S.mode, rec=m==="recording"||m==="countdown", busy=BUSY.has(m);
   const why = recordWhy();
   const rb=$("recBtn");
-  rb.disabled = !S.src || m==="playing" || m==="preview" || m==="arming" || !!S.exporting || (!rec && G.done);
+  rb.disabled = !S.src || m==="playing" || m==="arming" || !!S.exporting || (!rec && G.done);
   rb.classList.toggle("blocked", !rec && !!why && !rb.disabled);
   rb.title = rec ? "Stop de opname (spatie)" : why || "Opnemen (spatie)";
   rb.classList.toggle("stop",rec); $("recLabel").textContent = m==="arming" ? "Even geduld…" : rec ? "Stop opname" : "Opnemen";
   if (!busy || m==="arming" || m==="countdown") S.paused=false;
-  const pausable=(m==="recording"||m==="preview"||m==="playing")&&!S.exporting;
+  const pausable=(m==="recording"||m==="preview"||m==="playing")&&!S.exporting&&!S.tailing&&!S.tailPlay;
   $("pauseBtn").disabled=!pausable; $("pauseLabel").textContent=S.paused?"▶ Verder":"⏸ Pauze"; $("pauseBtn").title=S.paused?"Ga verder (P)":"Zet de clip even stil (P)";
   $("playLast").disabled=busy||!S.src||!clipTakes().length;
   $("stopBtn").disabled=!busy||m==="arming";
@@ -1745,7 +1781,7 @@ function refreshButtons(){
   $("lamp").classList.toggle("on",m==="recording"&&!S.paused);
   $("screen").classList.toggle("rec",rec); $("screen").classList.toggle("play",m==="playing"||m==="preview");
   $("tag").hidden=!(m==="recording"||m==="playing"||m==="preview");
-  $("tag").textContent=S.paused?"⏸ PAUZE":S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
+  $("tag").textContent=S.tailing?"🎙️ ZIN AFMAKEN":S.paused?"⏸ PAUZE":S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
   $("tag").classList.toggle("play",m!=="recording"); $("tag").classList.toggle("pause",S.paused);
   $("remain").hidden=!(rec||m==="playing"||m==="preview");
   $("tc").classList.toggle("live",m==="recording");
@@ -1780,7 +1816,9 @@ document.addEventListener("paste",e=>{ if (e.target.closest("input")||document.q
 
 $("recBtn").onclick=()=>{
   const now=performance.now(); if (now-(S.recClickAt||0)<TIMING.doubleClick) return; S.recClickAt=now;
-  (S.mode==="recording"||S.mode==="countdown") ? stopRecording() : startRecording();
+  if (S.mode==="recording"||S.mode==="countdown") return stopRecording();
+  if (S.mode==="preview") stopPreview(); // klaar met kijken: meteen opnemen, zonder de hele clip uit te kijken
+  startRecording();
 };
 $("stopBtn").onclick=stopEverything;
 $("playLast").onclick=()=>{ const t=clipTakes()[0]; if (t) playTake(t,{rate:t.score==null}); };
@@ -1789,7 +1827,7 @@ $("randClip").onclick=()=>newClip(true);
 $("preview").onclick=()=>startPreview();
 $("pauseBtn").onclick=togglePause;
 function togglePause(){
-  const m=S.mode; if (!S.src || S.exporting || !(m==="recording"||m==="preview"||m==="playing")) return;
+  const m=S.mode; if (!S.src || S.exporting || S.tailing || S.tailPlay || !(m==="recording"||m==="preview"||m==="playing")) return;
   S.paused=!S.paused;
   if (S.paused) S.src.pause(); else S.src.play();
   refreshButtons();
@@ -1825,7 +1863,7 @@ document.addEventListener("keydown",e=>{
   if (e.target.closest("input,textarea,select")||e.metaKey||e.ctrlKey||e.altKey||document.querySelector("dialog[open]")) return;
   const k=e.key.toLowerCase();
   if (e.code==="Space"){ if (e.target.closest("button:not(#recBtn)")) return; e.preventDefault(); if (e.repeat) return;
-    if (S.mode==="playing"||S.mode==="preview") stopEverything(); else if (!$("recBtn").disabled) $("recBtn").click(); }
+    if (S.mode==="playing") stopEverything(); else if (!$("recBtn").disabled) $("recBtn").click(); }
   else if (k==="w"&&!$("preview").disabled) $("preview").click();
   else if (k==="p"&&!$("pauseBtn").disabled) $("pauseBtn").click();
   else if (k==="p"&&!$("playLast").disabled) $("playLast").click();
@@ -1841,8 +1879,8 @@ document.addEventListener("visibilitychange",()=>{ if (document.hidden && (S.mod
 
 setInterval(()=>{
   if (!S.src) return; const now=S.src.time();
-  if (S.mode==="recording"){ if (now>=clipEnd()-TIMING.recEndSlack) stopRecording(); }
-  else if (S.mode==="playing"&&S.playing){ checkSync(); if (now>=S.playing.end+TIMING.playEndSlack) finishPlayback(true); }
+  if (S.mode==="recording"){ if (now>=clipEnd()-TIMING.recEndSlack) clipFinished(); }
+  else if (S.mode==="playing"&&S.playing){ if (!S.tailPlay){ checkSync(); if (now>=S.playing.end+TIMING.playEndSlack) videoEndedInPlay(); } }
   else if (S.mode==="preview"){ if (now>=clipEnd()) stopPreview(); }
   // Reclame: rechtsonder in het beeld blijft klikbaar. Is niet te zien of er een reclame speelt, dan blijft dat gat altijd open.
   const ad=S.src.inAd?.(); const hole=S.src.kind==="yt"&&(ad===undefined||ad===true);
@@ -1868,7 +1906,8 @@ function paintClock(){
   setText("remain",fmtS(Math.ceil(len-rel-.001)));
   $("prog").style.width=pct; $("clipfill").style.width=pct;
   $("clipbar").classList.toggle("rec",m==="recording"||m==="countdown");
-  const h=$("phead"); if (h&&d) h.style.left=(Math.min(now,d)/d*100)+"%";
+  const v=trackView(), h=$("phead"); if (h&&d) h.style.left=(Math.max(0,Math.min(1,(now-v.start)/v.len))*100)+"%";
+  if (S.trackKey!==v.clip+":"+v.start+":"+v.len) renderTrack();
   $("track").classList.toggle("noseek",!canSeek());
   setText("vTime",fmtS(rel)+" / "+fmtS(len)); setText("vDur",d?"video "+fmtS(d):"");
   const playing=S.vstate==="playing"&&!S.paused, b=$("vPlay");
@@ -1907,6 +1946,51 @@ function showInfo(m){ $("info").textContent=m; $("info").hidden=false; }
 function hideInfo(){ $("info").hidden=true; }
 let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,TIMING.toast); }
 
+// ---------- Automatisch bijwerken: een nieuwe versie van het spel verschijnt vanzelf bij de speler ----------
+// We vergelijken de bestanden op de server met wat er bij het openen stond. Anders dan bij een gewone verversing
+// halen we de nieuwe bestanden eerst vers op, zodat de browser niet een oude kopie uit zijn cache pakt.
+const UPD = { base:null, busy:false };
+const updUrls = () => { const page=location.href.split("#")[0].split("?")[0]; return [page, ...[...document.querySelectorAll("script[src]")].map(s=>new URL(s.getAttribute("src"),location.href).href)]; };
+const hashText = t => { let h=2166136261; for (let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36)+":"+t.length; };
+async function serverVersion(cache="no-store"){
+  const parts = await Promise.all(updUrls().map(async u=>{ const r=await fetch(u,{cache}); if (!r.ok) throw new Error("http "+r.status); return hashText(await r.text()); }));
+  return parts.join("|");
+}
+const updateIdle = () => !BUSY.has(S.mode) && !S.exporting && !S.rateTake && !$("authDlg").open;
+async function checkUpdate(){
+  if (location.protocol==="file:" || UPD.busy) return false;
+  UPD.busy=true;
+  try {
+    const now = await serverVersion();
+    if (UPD.base===null){ UPD.base=now; return false; }
+    if (now===UPD.base) return false;
+    applyUpdate();
+    return true;
+  } catch { return false; }
+  finally { UPD.busy=false; }
+}
+function applyUpdate(){
+  let last=0; try { last = +(sessionStorage.getItem("ss.updatedAt")||0); } catch {}
+  if (Date.now()-last < TIMING.updateMinGap) return;
+  const wait = () => { if (!updateIdle()) return setTimeout(wait,TIMING.updateRetry); doReload(); };
+  wait();
+}
+async function doReload(){
+  toast("Er is een nieuwe versie van Stemmenstudio. De pagina wordt even vernieuwd…");
+  try { await Promise.all(updUrls().map(u=>fetch(u,{cache:"reload"}))); } catch {} // vers in de cache zetten
+  try {
+    sessionStorage.setItem("ss.updatedAt",String(Date.now()));
+    if (S.src && S.srcInfo && S.srcInfo.kind!=="file") sessionStorage.setItem("ss.afterUpdate",JSON.stringify({info:storableInfo(),start:S.clipStart}));
+  } catch {}
+  setTimeout(()=>location.reload(),TIMING.updateReload);
+}
+if (location.protocol!=="file:"){
+  checkUpdate(); // eerste keer: onthoudt alleen hoe de huidige versie eruitziet
+  setInterval(()=>{ if (!document.hidden) checkUpdate(); },TIMING.updateEvery);
+  document.addEventListener("visibilitychange",()=>{ if (!document.hidden) checkUpdate(); });
+}
+window.__checkUpdate=checkUpdate; window.__updBase=()=>UPD.base; window.__updReset=()=>{ UPD.base=null; }; // voor de tests
+
 // ---------- Start ----------
 (async()=>{
   const saved=E.restore(LS.get(KEYS.game,null));
@@ -1915,7 +1999,9 @@ let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.hidden=false; 
   S.resumed = !!saved && !saved.legacy && !saved.done && (saved.round>1 || saved.turn>0 || saved.players.some(p=>p.pts));
   renderGame(); renderTakes(); renderLens();
   S.clips=await DB.all("clips"); S.takes=await DB.all("takes"); renderLib(); renderTrack(); refreshButtons();
-  if (S.resumed) toast(`Je partij is hersteld. ${E.current(G).name} is aan de beurt.`);
+  let after=null; try { after=JSON.parse(sessionStorage.getItem("ss.afterUpdate")||"null"); sessionStorage.removeItem("ss.afterUpdate"); } catch {}
+  if (after?.info){ loadSource(after.info,{start:after.start}); toast("Nieuwe versie geladen. Je video staat weer klaar."); }
+  else if (S.resumed) toast(`Je partij is hersteld. ${E.current(G).name} is aan de beurt.`);
   else if (!LS.get(KEYS.help,false)) openHelp();
   else openStart();
 })();

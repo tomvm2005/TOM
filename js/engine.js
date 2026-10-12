@@ -18,6 +18,7 @@ const RULES = Object.freeze({
   maxName: 24,
   freeStep: 5,             // stapgrootte (s) bij het zoeken naar een stuk dat nog niet gespeeld is
   clipMatchTolerance: 1,   // twee clips met een begin binnen 1 s van elkaar zijn dezelfde clip
+  tailSecs: 3,             // s extra opnemen na het einde van de clip, om je zin af te maken
   placeholderName: "Speler 1",
 });
 
@@ -238,8 +239,7 @@ function recordBlock(ctx) {
   if (ctx.mode === "countdown" || ctx.mode === "recording") return "";
   if (ctx.exporting) return "Even wachten: de video wordt gemaakt.";
   if (ctx.mode === "playing") return "Even wachten: er wordt een take afgespeeld.";
-  if (ctx.mode === "preview") return "Even wachten: de clip speelt nog. Stop hem eerst.";
-  if (ctx.mode && ctx.mode !== "idle") return "Even wachten…";
+  if (ctx.mode && ctx.mode !== "idle" && ctx.mode !== "preview") return "Even wachten…"; // tijdens bekijken mag je meteen opnemen
   if (ctx.done) return "De partij is afgelopen. Start een nieuwe partij.";
   if (!ctx.watched) return "Bekijk eerst de clip, dan weet je waar je overheen praat.";
   return "";
