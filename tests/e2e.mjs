@@ -342,6 +342,57 @@ try {
     await page.context().close();
   }
 
+  // ===== Opnemen tijdens bekijken, door-praten na het einde van de clip, lijntje gelijk met timer, automatisch bijwerken =====
+  {
+    const { page } = await open(browser, { init: () => { try { localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
+    await page.waitForSelector("#startDlg[open]"); await page.fill("#startName", "Tess"); await page.click("#startAdd"); await page.click("#startGo");
+    await page.setInputFiles("#file", LONG);
+    await page.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 100); await sleep(300);
+    await page.click('#lens button[data-len="10"]'); await sleep(200);
+    const clip0 = await S(page, () => window.__ss.clipStart);
+
+    // opnemen terwijl de clip nog speelt: geen "even wachten", geen hele clip uitkijken
+    await page.click("#preview"); await sleep(1200);
+    check("tijdens bekijken is de opnameknop te gebruiken", await page.isEnabled("#recBtn") && await mode(page) === "preview");
+    // het lijntje en de balk zijn nu van de clip, gelijk met de timer
+    const view = await S(page, () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => {
+      const tc = document.getElementById("tc").textContent.match(/(\d+):(\d+\.\d)\s*\/\s*(\d+):(\d+)/); const rel = +tc[1] * 60 + +tc[2], len = +tc[3] * 60 + +tc[4];
+      const tr = document.getElementById("track").getBoundingClientRect(), h = document.getElementById("phead").getBoundingClientRect();
+      r({ line: ((h.left + h.width / 2) - tr.left) / tr.width, timer: rel / len, end: document.getElementById("durLbl").textContent }); }))));
+    check("het lijntje loopt gelijk met de timer (clipbalk toont alleen de clip)", Math.abs(view.line - view.timer) < 0.03 && view.end === "0:10", JSON.stringify(view));
+    await page.click("#recBtn");
+    await page.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 });
+    check("opnemen vanuit bekijken start de opname", await mode(page) === "recording");
+    // praat door tot na het einde van de clip: de opname stopt pas na de extra seconden
+    await page.waitForFunction(() => window.__ss.tailing === true, null, { timeout: 15000 });
+    const t0 = Date.now();
+    check("clip is klaar: beeld staat stil, opname loopt nog even door", await S(page, () => window.__ss.rec.state === "recording" && window.__ss.src.el.paused) && /AFMAKEN/.test(await page.textContent("#tag")));
+    await page.waitForFunction(() => window.__ss.takes.length === 1, null, { timeout: 15000 });
+    const waited = (Date.now() - t0) / 1000;
+    const tk = await S(page, () => { const k = window.__ss.takes[0]; return { buf: k.buffer.duration, off: k.offset, vid: k.end - k.start }; });
+    check("de opname bevat de extra seconden na de clip", tk.buf - (tk.off + tk.vid) > 2, `opname ${tk.buf.toFixed(2)} s, clip ${(tk.off + tk.vid).toFixed(2)} s, wachttijd ${waited.toFixed(1)} s`);
+    check("de stem wordt bij terugkijken niet afgekapt: pas klaar na de extra seconden", await page.waitForFunction(() => window.__ss.mode === "idle", null, { timeout: 15000 }).then(() => true, () => false));
+    await page.keyboard.press("3"); await sleep(300);
+
+    // automatisch bijwerken: nieuwe versie op de server -> pagina ververst zichzelf, wacht tot er niet meer gespeeld wordt
+    let v = 1;
+    await page.route(URL0, route => route.fetch().then(async r => route.fulfill({ response: r, body: (await r.text()) + `<!-- v${v} -->` })));
+    await page.evaluate(async () => { window.__updReset(); await window.__checkUpdate(); }); // nulmeting met de nagebootste server
+    check("nulmeting van de versie is gemaakt", await S(page, () => !!window.__updBase()));
+    await S(page, () => { window.__marker = 1; });
+    v = 2;
+    await page.click("#preview"); await sleep(300);
+    await page.evaluate(() => window.__checkUpdate());
+    await sleep(2500);
+    check("nieuwe versie: er wordt niet ververst terwijl er gespeeld wordt", await S(page, () => window.__marker === 1));
+    await page.click("#stopBtn");
+    const reloaded = await page.waitForFunction(() => window.__marker !== 1, null, { timeout: 12000 }).then(() => true, () => false);
+    check("zodra het rustig is ververst de pagina zichzelf", reloaded);
+    await page.waitForSelector("#players .player"); 
+    check("de partij en de spelers blijven bewaard na het verversen", await S(page, () => window.__game().players.some(p => p.name === "Tess")));
+    await page.context().close();
+  }
+
   // ===== Voorbeeldweergave: pagina in een afgeschermd frame (alleen scripts, geen formulieren of opslag) =====
   {
     const ctx = await browser.newContext(); const page = await ctx.newPage();
