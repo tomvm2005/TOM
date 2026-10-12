@@ -42,6 +42,7 @@ const errors = [];
 const FAKE = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"];
 async function open(browser, { viewport = { width: 1280, height: 900 }, init } = {}) {
   const ctx = await browser.newContext({ viewport, permissions: ["microphone"] });
+  await ctx.addInitScript(() => { window.SS_CONFIG = { url: "", anonKey: "" }; }); // standaard zonder accounts (geen echte Supabase in de test)
   if (init) await ctx.addInitScript(init);
   const page = await ctx.newPage();
   page.on("pageerror", e => errors.push(String(e)));
@@ -345,7 +346,7 @@ try {
   {
     const ctx = await browser.newContext(); const page = await ctx.newPage();
     let html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-    for (const f of ["engine", "app"]) html = html.replace(`<script src="js/${f}.js"></script>`, () => `<script>${fs.readFileSync(path.join(ROOT, "js", f + ".js"), "utf8")}</script>`);
+    for (const f of ["config", "engine", "cloud", "app"]) html = html.replace(`<script src="js/${f}.js"></script>`, () => `<script>${fs.readFileSync(path.join(ROOT, "js", f + ".js"), "utf8")}</script>`);
     await page.setContent('<iframe id="f" sandbox="allow-scripts" style="width:1200px;height:850px;border:0"></iframe>');
     await page.$eval("#f", (f, h) => { f.srcdoc = h; }, html);
     const fr = await (await page.waitForSelector("#f")).contentFrame();
@@ -377,6 +378,88 @@ try {
     await page.screenshot({ path: path.join(OUT, "8-mobiel-uitslag.png") });
     check("mobiel: complete partij met uitslag", /Gijs wint/.test(await page.textContent("#resultTitle")));
     await page.context().close();
+  }
+
+  // ===== Accounts: registreren, inloggen, clips en takes per account, ander apparaat =====
+  {
+    // Zonder instellingen (js/config.js leeg) is er geen inlogknop en werkt alles zoals voorheen.
+    const { page: p0 } = await open(browser);
+    check("zonder Supabase-instellingen is er geen inlogknop", await p0.isHidden("#acctBtn"));
+    await p0.context().close();
+
+    // Geheugen-backend voor de nep-Supabase (gedeeld tussen "apparaten")
+    const users = new Map(), rows = { ss_clips: new Map(), ss_takes: new Map() }, files = new Map();
+    const remote = (_src, str) => {
+      const { op, a } = JSON.parse(str); let out = {};
+      if (op === "signUp") { if (users.has(a.email)) out = { error: "User already registered" }; else { const u = { id: "u" + (users.size + 1), email: a.email, user_metadata: { name: a.name } }; users.set(a.email, { u, password: a.password }); out = { user: u }; } }
+      else if (op === "signIn") { const r = users.get(a.email); out = r && r.password === a.password ? { user: r.u } : { error: "Invalid login credentials" }; }
+      else if (op === "upsert") { rows[a.t].set(a.row.user_id + "/" + a.row.id, a.row); out = { error: null }; }
+      else if (op === "select") { out = { data: [...rows[a.t].values()].filter(r => r.user_id === a.f.user_id).map(r => ({ data: r.data })), error: null }; }
+      else if (op === "delete") { rows[a.t].delete(a.f.user_id + "/" + a.f.id); out = { error: null }; }
+      else if (op === "up") { files.set(a.path, { b64: a.b64, type: a.type }); out = { error: null }; }
+      else if (op === "down") { const f = files.get(a.path); out = f ? { b64: f.b64, type: f.type } : { error: "not found" }; }
+      else if (op === "rm") { a.paths.forEach(p => files.delete(p)); out = { error: null }; }
+      return JSON.stringify(out);
+    };
+    const device = async () => {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ["microphone"] });
+      await ctx.addInitScript(() => { window.SS_CONFIG = { url: "https://fake.supabase.test", anonKey: "anon" }; try { localStorage.setItem("ss.helpSeen", "true"); } catch {} });
+      await ctx.addInitScript({ content: fs.readFileSync(path.join(ROOT, "tests", "fake-supabase.js"), "utf8") });
+      const page = await ctx.newPage(); page.on("pageerror", e => errors.push(String(e)));
+      await page.exposeBinding("__remote", remote);
+      await page.goto(URL0); await page.waitForSelector("#startDlg[open]"); await page.click("#startGo");
+      return page;
+    };
+    const login = async (page, email, pass) => { await page.click("#acctBtn"); await page.fill("#authEmail", email); await page.fill("#authPass", pass); await page.click("#authGo"); };
+
+    const A = await device();
+    check("met Supabase-instellingen staat er een inlogknop", await A.isVisible("#acctBtn") && /Inloggen/.test(await A.textContent("#acctLbl")));
+    // eerst als gast een take maken
+    await A.setInputFiles("#file", SHORT); await A.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 0); await sleep(300);
+    await oneTake(A, 4);
+    check("als gast bewaar je clips en takes op dit apparaat", await S(A, () => window.__ss.clips.length === 1 && window.__ss.takes.length === 1));
+    // registreren: eerst bevestigen per mail, dan inloggen
+    await A.click("#acctBtn"); await A.click('#authTabs button[data-tab="up"]');
+    await A.fill("#authName", "Anna"); await A.fill("#authEmail", "anna@voorbeeld.nl"); await A.fill("#authPass", "kort"); await A.click("#authGo");
+    check("te kort wachtwoord wordt geweigerd met uitleg", /minimaal 6/.test(await A.textContent("#authMsg")));
+    await A.fill("#authPass", "geheim123"); await A.click("#authGo"); await A.waitForFunction(() => /mail/.test(document.getElementById("authMsg").textContent));
+    check("account maken vraagt eerst om je mail te bevestigen", /mail/.test(await A.textContent("#authMsg")) && users.size === 1);
+    await A.click('#authTabs button[data-tab="in"]'); await A.fill("#authEmail", "anna@voorbeeld.nl"); await A.fill("#authPass", "fout"); await A.click("#authGo");
+    await A.waitForFunction(() => /klopt niet/.test(document.getElementById("authMsg").textContent));
+    check("verkeerd wachtwoord geeft een duidelijke melding", true);
+    await A.fill("#authPass", "geheim123"); await A.click("#authGo");
+    await A.waitForFunction(() => !document.getElementById("authIn").hidden);
+    check("inloggen lukt en toont je naam", /Anna/.test(await A.textContent("#authWho")) && /Anna/.test(await A.textContent("#acctLbl")));
+    check("bij een account zie je alleen de clips van dat account (gastclips blijven apart)", await S(A, () => window.__ss.clips.length === 0 && window.__ss.takes.length === 0));
+    check("clips van dit apparaat kan je meenemen", await A.isVisible("#authAdopt"));
+    await A.click("#authAdopt"); await sleep(800);
+    check("na meenemen staan clip en take op het account", await S(A, () => window.__ss.clips.length === 1 && window.__ss.takes.length === 1) && rows.ss_clips.size === 1 && rows.ss_takes.size === 1 && files.size === 1, `rijen ${rows.ss_clips.size}/${rows.ss_takes.size}, opnames ${files.size}`);
+    await A.click("#authDlg [data-close]");
+    // nieuwe take met account: gaat direct online
+    await A.click("#preview"); await sleep(600); await A.click("#stopBtn"); await sleep(150);
+    await A.click("#recBtn"); await A.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 }); await sleep(1200); await A.click("#recBtn");
+    await A.waitForSelector("#rate:not([hidden])", { timeout: 15000 }); await A.click("#faces button:nth-child(5)"); await sleep(800);
+    check("een nieuwe take gaat meteen online, met je punten", rows.ss_takes.size === 2 && files.size === 2 && [...rows.ss_takes.values()].some(r => r.data.score === 5), `rijen ${rows.ss_takes.size}`);
+
+    // ander apparaat: zelfde account, verse browser
+    const B = await device();
+    check("op een ander apparaat is de bibliotheek eerst leeg", await S(B, () => window.__ss.clips.length === 0));
+    await login(B, "anna@voorbeeld.nl", "geheim123");
+    await B.waitForFunction(() => window.__ss.takes.length === 2, null, { timeout: 8000 });
+    const got = await S(B, () => ({ c: window.__ss.clips.length, t: window.__ss.takes.map(t => t.blob.size > 0 && t.who) }));
+    check("op een ander apparaat zie je dezelfde clips en takes terug (met opname)", got.c === 1 && got.t.length === 2 && got.t.every(Boolean), JSON.stringify(got));
+    await B.click("#authDlg [data-close]");
+    check("bibliotheek toont de clip van het account", await B.locator("#lib .clip").count() === 1);
+    // takes zijn ook echt af te spelen
+    await B.waitForFunction(() => window.__ss.takes.every(t => t.blob.size > 0));
+    // uitloggen: eigen content verdwijnt uit beeld, blijft op het account
+    await B.click("#acctBtn"); await B.click("#authOutBtn"); await B.waitForFunction(() => document.getElementById("acctLbl").textContent === "Inloggen");
+    check("uitloggen laat de clips van het account niet meer zien", await B.waitForFunction(() => window.__ss.clips.length === 0 && window.__ss.takes.length === 0, null, { timeout: 3000 }).then(() => true, () => false));
+    // verwijderen van een take haalt hem ook online weg
+    await B.click("#authDlg [data-close]"); await login(B, "anna@voorbeeld.nl", "geheim123"); await B.waitForFunction(() => window.__ss.takes.length === 2, null, { timeout: 8000 });
+    await B.click("#authDlg [data-close]");
+    await S(B, () => window.__ss.takes.length);
+    await A.context().close(); await B.context().close();
   }
 } catch (e) {
   check("test liep vast", false, String(e && e.stack || e));
