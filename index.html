@@ -267,6 +267,13 @@ aside{display:grid;gap:16px}
 @media (max-width:640px),(hover:none){.keys{display:none}}
 
 /* ---------- Partij, dialogen en feedback ---------- */
+.authfields{display:grid;gap:10px}
+.authfields label{display:grid;gap:5px;font:600 14px var(--f-body);color:var(--muted)}
+.authfields input{background:#fff;border:1.5px solid var(--line);color:var(--fg);border-radius:12px;padding:12px 14px;font:500 16px var(--f-body);transition:border-color .2s,box-shadow .25s}
+.authfields input:focus{outline:none;border-color:var(--cue);box-shadow:0 0 0 5px rgba(47,134,255,.14)}
+.authmsg{margin:0;padding:10px 14px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line);font-size:14px}
+.authmsg.bad{background:#fff1f2;border-color:#ffc4cb;color:#9b1c2e}
+.auth #authTabs{justify-self:start}
 .hdr-right{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .nowturn{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;background:linear-gradient(135deg,var(--btn-a),var(--btn-b));color:#fff;border-radius:14px;padding:10px 14px;box-shadow:var(--glow)}
 .nowturn span{font:500 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;opacity:.9}
@@ -356,7 +363,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
   <header>
     <div class="brand"><div class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="bars" fill="#fff"><rect x="3" y="7" width="3" height="10" rx="1.5"/><rect x="8" y="3" width="3" height="18" rx="1.5"/><rect x="13" y="6" width="3" height="12" rx="1.5"/><rect x="18" y="9" width="3" height="6" rx="1.5"/></g></svg><span class="lamp" id="lamp"></span></div><div><h1>Stemmen<em>studio</em></h1><p>Het voice-overspel voor vrienden en familie</p></div></div>
     <div class="hdr-right"><div class="keys"><span><kbd>Spatie</kbd> opnemen/stop</span><span><kbd>W</kbd> bekijk clip</span><span><kbd>P</kbd> pauze</span><span><kbd>N</kbd> nieuwe clip</span><span><kbd>D</kbd> opdracht</span></div>
-      <button class="sm" id="helpBtn" type="button" aria-label="Uitleg">❓ <span class="lbl">Uitleg</span></button><button class="sm" id="setBtn" type="button" aria-label="Instellingen">⚙️ <span class="lbl">Instellingen</span></button></div>
+      <button class="sm" id="acctBtn" type="button" hidden aria-label="Account">👤 <span class="lbl" id="acctLbl">Inloggen</span></button><button class="sm" id="helpBtn" type="button" aria-label="Uitleg">❓ <span class="lbl">Uitleg</span></button><button class="sm" id="setBtn" type="button" aria-label="Instellingen">⚙️ <span class="lbl">Instellingen</span></button></div>
   </header>
 
   <div class="mobibar" id="mobibar" aria-hidden="true"></div>
@@ -501,6 +508,29 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
   </div>
 </dialog>
 
+<dialog id="authDlg" aria-labelledby="authTitle">
+  <div class="dlg auth">
+    <h2 id="authTitle">Account</h2>
+    <div id="authOut">
+      <div class="lens seg" id="authTabs" role="group" aria-label="Inloggen of account maken"><button type="button" data-tab="in" class="on" aria-pressed="true">Inloggen</button><button type="button" data-tab="up" aria-pressed="false">Account maken</button></div>
+      <p class="sub" id="authIntro">Met een account staan je bewaarde clips en takes online, en zie je ze op elk apparaat terug.</p>
+      <div class="authfields">
+        <label id="authNameRow" hidden>Naam<input id="authName" type="text" maxlength="24" autocomplete="nickname" placeholder="Hoe heet je?"></label>
+        <label>E-mailadres<input id="authEmail" type="email" autocomplete="email" inputmode="email" placeholder="jij@voorbeeld.nl"></label>
+        <label>Wachtwoord<input id="authPass" type="password" autocomplete="current-password" placeholder="Minimaal 6 tekens"></label>
+      </div>
+      <p class="authmsg" id="authMsg" role="status" aria-live="polite" hidden></p>
+    </div>
+    <div id="authIn" hidden>
+      <p class="sub" id="authWho"></p>
+      <p class="sub" id="authCount"></p>
+      <div class="dlg-btns left"><button type="button" class="sm" id="authAdopt" hidden>Neem clips van dit apparaat mee</button></div>
+      <p class="authmsg" id="authMsg2" role="status" aria-live="polite" hidden></p>
+    </div>
+    <div class="dlg-btns"><button type="button" class="btn-cue" id="authGo">Inloggen</button><button type="button" id="authOutBtn" hidden>Uitloggen</button><button type="button" data-close="close">Sluiten</button></div>
+  </div>
+</dialog>
+
 <dialog id="helpDlg" aria-labelledby="helpTitle">
   <div class="dlg help">
     <h2 id="helpTitle">Zo speel je Stemmenstudio</h2>
@@ -515,7 +545,9 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
   </div>
 </dialog>
 
+<script src="js/config.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/cloud.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

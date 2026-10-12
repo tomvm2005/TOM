@@ -24,6 +24,7 @@ Sneltoetsen: spatie opnemen/stoppen, W bekijk clip, P pauze (of laatste take als
 - Een take verwijderen haalt de punten ervan weg.
 - Is de video korter dan de clip, dan is de clip de hele video. Zijn alle stukken gespeeld, dan komt er toch een (gespeeld) stuk, met melding.
 - Alles wordt alleen op dit apparaat bewaard (IndexedDB en localStorage). Lukt dat niet (privévenster, opslag vol), dan zegt het spel dat.
+- Accounts: met een account (knop rechtsboven) staan je clips en takes online en zie je ze op elk apparaat terug. Dit staat aan zodra `js/config.js` is ingevuld; zie `supabase/README.md`.
 - Een partij die bezig was, gaat na herladen gewoon verder.
 
 ## Structuur

@@ -45,6 +45,7 @@ let G = E.newState(); // spelstatus (spelers, beurt, rondes)
 
 // ---------- Opslag (IndexedDB, met geheugen als terugval) ----------
 // put() geeft true als het echt op dit apparaat bewaard is, false als het alleen in het geheugen staat.
+let OWNER = "gast"; // van wie de bewaarde clips en takes zijn: het account-id, of "gast" zonder account
 const DB = (() => {
   let dbp = null;
   const mem = {clips:new Map(), takes:new Map(), files:new Map()};
@@ -73,7 +74,7 @@ const DB = (() => {
     async put(store,obj){ try { await tx(store,"readwrite",s=>s.put(obj)); mem[store].delete(obj.id); return true; }
       catch(e){ mem[store].set(obj.id,obj); storageProblem(e); return false; } },
     async del(store,id){ mem[store].delete(id); try { await tx(store,"readwrite",s=>s.delete(id)); } catch {} },
-    async all(store){ let v=[]; try { v=(await tx(store,"readonly",s=>s.getAll()))||[]; } catch(e){ storageProblem(e); } return [...v, ...mem[store].values()]; },
+    async all(store, owner=OWNER){ let v=[]; try { v=(await tx(store,"readonly",s=>s.getAll()))||[]; } catch(e){ storageProblem(e); } return [...v, ...mem[store].values()].filter(o=>(o.owner||"gast")===owner); },
     async get(store,id){ try { const v=await tx(store,"readonly",s=>s.get(id)); if (v) return v; } catch {} return mem[store].get(id); },
   };
 })();
@@ -84,6 +85,100 @@ function storageProblem(e){
   showErr(full ? "De opslag van je browser is vol. Nieuwe takes blijven alleen bewaard tot je de pagina sluit. Download takes die je wilt houden, of verwijder oude clips."
                : "Je browser laat Stemmenstudio niets bewaren (bijvoorbeeld in een privévenster). Spelen kan gewoon, maar takes verdwijnen als je de pagina sluit. Download takes die je wilt houden.");
   sfx("error");
+}
+
+// ---------- Account en online bewaren (alleen als js/config.js is ingevuld) ----------
+const cloudUp = new Set(); // opnames die al online staan
+let cloudWarned = false, syncSeq = 0;
+function cloudWarn(){ if (cloudWarned) return; cloudWarned = true; toast("Online bewaren lukte niet. Alles staat wel op dit apparaat; bij de volgende keer inloggen proberen we het opnieuw."); setTimeout(()=>{ cloudWarned=false; },60000); }
+async function save(store, obj){
+  const ok = await DB.put(store, obj); cloudPush(store, obj); return ok;
+}
+function cloudPush(store, obj){
+  const uid = Cloud.uid(); if (!uid || obj.owner!==uid) return;
+  const blob = store==="takes" && !cloudUp.has(obj.id) ? obj.blob : null;
+  Cloud.push(store, obj, blob).then(()=>{ if (blob) cloudUp.add(obj.id); }, cloudWarn);
+}
+function cloudDel(store, id){ if (Cloud.uid()) Cloud.remove(store, id).catch(cloudWarn); }
+async function loadMine(){
+  S.clips = await DB.all("clips"); S.takes = await DB.all("takes"); S.clipId = null;
+  renderTakes(); renderLib(); if (S.src) setClipStart(S.clipStart); else renderTrack(); refreshButtons();
+}
+// Na inloggen of uitloggen: toon de clips van dit account en haal bij van online.
+async function syncAccount(){
+  const seq = ++syncSeq, me = Cloud.user(), uid = me?.id || null;
+  OWNER = uid || "gast"; renderAcct(); await loadMine();
+  if (!uid) return;
+  try {
+    const remote = await Cloud.pull(); if (seq!==syncSeq) return;
+    const haveC = new Set(S.clips.map(c=>c.id)), haveT = new Set(S.takes.map(t=>t.id));
+    for (const c of remote.clips) if (!haveC.has(c.id)){ c.owner=uid; S.clips.push(c); await DB.put("clips",c); }
+    for (const r of remote.takes){
+      cloudUp.add(r.id);
+      if (haveT.has(r.id)) continue;
+      try { const blob = await Cloud.blob(r.id); const t = {...r, blob, owner:uid}; S.takes.push(t); await DB.put("takes",t); } catch {}
+      if (seq!==syncSeq) return;
+    }
+    const remC = new Set(remote.clips.map(c=>c.id)), remT = new Set(remote.takes.map(t=>t.id));
+    for (const c of S.clips) if (!remC.has(c.id)) cloudPush("clips", c);
+    for (const t of S.takes) if (!remT.has(t.id)) cloudPush("takes", stripTake(t));
+    renderLib(); renderTakes(); renderAcct(); refreshButtons();
+  } catch { toast("Je clips van dit account konden niet geladen worden. Probeer het later opnieuw."); }
+}
+// Clips en takes van voor het inloggen (zonder account) naar dit account verplaatsen.
+async function adoptGuest(){
+  const uid = Cloud.uid(); if (!uid) return 0;
+  const gc = await DB.all("clips","gast"), gt = await DB.all("takes","gast");
+  for (const c of gc){ c.owner=uid; await DB.put("clips",c); cloudPush("clips",c); }
+  for (const t of gt){ t.owner=uid; await DB.put("takes",t); cloudPush("takes",stripTake(t)); }
+  await loadMine(); return gc.length + gt.length;
+}
+let authTab = "in";
+function authMsg(id, text, bad){ const el=$(id); el.hidden=!text; el.textContent=text||""; el.classList.toggle("bad",!!bad); }
+function renderAcct(){
+  if (!Cloud.enabled()) return;
+  const me = Cloud.user(); $("acctBtn").hidden=false; $("acctLbl").textContent = me ? me.name : "Inloggen";
+  $("libSub").textContent = me ? `Clips en takes van ${me.name}, ook op andere apparaten.` : "Clips en takes blijven op deze computer bewaard. Log in om ze overal te zien.";
+}
+async function renderAuth(){
+  const me = Cloud.user(); $("authOut").hidden=!!me; $("authIn").hidden=!me; $("authGo").hidden=!!me; $("authOutBtn").hidden=!me;
+  $("authTitle").textContent = me ? "Jouw account" : authTab==="up" ? "Account maken" : "Inloggen";
+  if (me){
+    $("authWho").textContent = `Ingelogd als ${me.name} (${me.email}).`;
+    $("authCount").textContent = `Op dit account: ${S.clips.length} ${S.clips.length===1?"clip":"clips"} en ${S.takes.length} ${S.takes.length===1?"take":"takes"}.`;
+    const g = (await DB.all("clips","gast")).length + (await DB.all("takes","gast")).length;
+    $("authAdopt").hidden = !g; $("authAdopt").textContent = `Neem ${g} ${g===1?"item":"items"} van dit apparaat mee naar mijn account`;
+  } else {
+    document.querySelectorAll("#authTabs button").forEach(b=>{ const on=b.dataset.tab===authTab; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on); });
+    $("authNameRow").hidden = authTab!=="up"; $("authGo").textContent = authTab==="up" ? "Account maken" : "Inloggen";
+    $("authPass").autocomplete = authTab==="up" ? "new-password" : "current-password";
+  }
+}
+function openAuth(){ if (BUSY.has(S.mode)) return; closeDialogs(); authMsg("authMsg",""); authMsg("authMsg2",""); renderAuth(); $("authDlg").showModal(); }
+async function authSubmit(){
+  const email=$("authEmail").value.trim(), pass=$("authPass").value, name=$("authName").value.trim();
+  if (!email || !pass) return authMsg("authMsg","Vul je e-mailadres en wachtwoord in.",true);
+  if (authTab==="up" && !name) return authMsg("authMsg","Vul ook je naam in.",true);
+  if (authTab==="up" && pass.length<6) return authMsg("authMsg","Kies een wachtwoord van minimaal 6 tekens.",true);
+  const b=$("authGo"); b.disabled=true; authMsg("authMsg","Bezig…");
+  try {
+    if (authTab==="up"){
+      const r = await Cloud.signUp(email,pass,name);
+      if (r.confirmMail){ authMsg("authMsg","Bijna klaar: we hebben een mail gestuurd. Klik op de link erin en log daarna hier in."); authTab="in"; renderAuth(); $("authPass").value=""; return; }
+    } else await Cloud.signIn(email,pass);
+    $("authPass").value=""; await syncAccount(); toast(`Welkom, ${Cloud.user().name}!`); sfx("done"); renderAuth();
+  } catch(e){ authMsg("authMsg",e.message,true); }
+  finally { b.disabled=false; }
+}
+if (Cloud.enabled()){
+  $("acctBtn").hidden=false;
+  $("acctBtn").onclick=openAuth; $("authGo").onclick=authSubmit;
+  ["authEmail","authPass","authName"].forEach(i=>$(i).addEventListener("keydown",e=>{ if (e.key==="Enter"){ e.preventDefault(); authSubmit(); } }));
+  document.querySelectorAll("#authTabs button").forEach(b=>b.onclick=()=>{ authTab=b.dataset.tab; authMsg("authMsg",""); renderAuth(); });
+  $("authOutBtn").onclick=async()=>{ try { await Cloud.signOut(); } catch(e){ return authMsg("authMsg2",e.message,true); } await syncAccount(); toast("Je bent uitgelogd."); renderAuth(); };
+  $("authAdopt").onclick=async()=>{ const n=await adoptGuest(); authMsg("authMsg2",n?`${n} ${n===1?"item staat":"items staan"} nu op je account.`:""); renderAuth(); };
+  Cloud.ready().then(ok=>{ if (ok){ Cloud.onChange(()=>syncAccount()); syncAccount(); } });
+  renderAcct();
 }
 
 // ---------- Spelstatus: alle wijzigingen via de engine ----------
@@ -401,10 +496,10 @@ async function saveTake(){
   let buffer; try { buffer=await audioCtx().decodeAudioData(await blob.arrayBuffer()); } catch { return showErr("De opname kon niet verwerkt worden. Probeer het nog een keer."); }
   const clip = await ensureClip(true);
   const p=G.players.find(x=>x.id===S.recPlayerId) || E.current(G);
-  const take={ id:"t"+Date.now(), clipId:clip.id, who:p.name, playerId:p.id, blob, offset:S.offset, start:S.recStart,
+  const take={ id:"t"+Date.now(), owner:OWNER, clipId:clip.id, who:p.name, playerId:p.id, blob, offset:S.offset, start:S.recStart,
     end:Math.max(S.recEnd,S.recStart+.5), challenge:S.challenge, score:null, created:Date.now() };
   S.takes.push(take);
-  const saved = await DB.put("takes",take);
+  const saved = await save("takes",take);
   if (saved && navigator.storage?.persist) navigator.storage.persist().catch(()=>{}); // vraag de browser de takes niet zomaar op te ruimen
   take.buffer=buffer;
   renderTakes(); renderLib(); renderTrack();
@@ -413,11 +508,11 @@ async function saveTake(){
 async function ensureClip(played){
   let c = S.clips.find(x=>x.id===S.clipId) || E.findClip(S.clips, S.srcKey, S.clipStart);
   if (!c){
-    c={ id:"c"+Date.now(), srcKey:S.srcKey, info:storableInfo(), title:S.src.title(), start:S.clipStart, len:clipEnd()-S.clipStart, played:false, created:Date.now(), thumb:S.src.thumb||grabThumb() };
+    c={ id:"c"+Date.now(), owner:OWNER, srcKey:S.srcKey, info:storableInfo(), title:S.src.title(), start:S.clipStart, len:clipEnd()-S.clipStart, played:false, created:Date.now(), thumb:S.src.thumb||grabThumb() };
     S.clips.push(c);
   }
   if (played && !c.played){ c.played=true; c.playedAt=Date.now(); }
-  S.clipId=c.id; await DB.put("clips",c); return c;
+  S.clipId=c.id; await save("clips",c); return c;
 }
 function storableInfo(){ const i=S.srcInfo; return i.kind==="file"&&i.blob ? {kind:"file",fileKey:S.srcKey,name:i.name} : {...i}; }
 function grabThumb(){
@@ -518,7 +613,7 @@ function rate(t,n){
   const prev = t.score ?? null;
   closeRate();
   if (dispatch({type:"rate", playerId:t.playerId, score:n, prev})) return;
-  t.score=n; DB.put("takes",stripTake(t));
+  t.score=n; save("takes",stripTake(t));
   sfx("score",n); bump(document.querySelector(`.player[data-id="${CSS.escape(t.playerId)}"]`));
   if (n>=BIG_SCORE) confetti(n===R.scoreMax?60:30);
   renderTakes();
@@ -626,7 +721,7 @@ $("endGameBtn").onclick=()=>{
   if (b.dataset.sure!=="1"){ b.dataset.sure="1"; b.textContent="Zeker? Klik nog eens"; setTimeout(()=>{ b.dataset.sure=""; renderGame(); },TIMING.deleteConfirm); return; }
   b.dataset.sure=""; if (BUSY.has(S.mode)) stopEverything(); dispatch({type:"endGame"});
 };
-$("resetScores").onclick=()=>{ dispatch({type:"resetScores"}); S.takes.forEach(t=>{ if (t.score!=null){ t.score=null; DB.put("takes",stripTake(t)); } }); renderTakes(); toast("Alle scores staan weer op nul."); };
+$("resetScores").onclick=()=>{ dispatch({type:"resetScores"}); S.takes.forEach(t=>{ if (t.score!=null){ t.score=null; save("takes",stripTake(t)); } }); renderTakes(); toast("Alle scores staan weer op nul."); };
 
 // ---------- Takes en bibliotheek ----------
 function clipTakes(){ return S.takes.filter(t=>t.clipId===S.clipId && S.clipId).sort((a,b)=>b.created-a.created); }
@@ -655,7 +750,7 @@ function renderTakes(){
       if (S.playing===t) finishPlayback(false);
       if (S.rateTake===t) closeRate();
       if (t.score) dispatch({type:"unrate", playerId:t.playerId, score:t.score});
-      S.takes=S.takes.filter(x=>x!==t); DB.del("takes",t.id); renderTakes(); renderLib();
+      S.takes=S.takes.filter(x=>x!==t); DB.del("takes",t.id); cloudDel("takes",t.id); renderTakes(); renderLib();
     };
     enter(d,"t:"+t.id); box.appendChild(d);
   });
@@ -732,7 +827,7 @@ function refreshButtons(){
   for (const id of ["randClip","preview","saveClip"]) $(id).disabled=!S.src||busy;
   $("preview").classList.toggle("btn-cue", !!S.src && !isWatched());
   $("showAll").disabled=busy;
-  $("pname").disabled=busy; $("newGameBtn").disabled=rec||m==="arming"; $("endGameBtn").disabled=rec||m==="arming";
+  $("acctBtn").disabled=busy; $("pname").disabled=busy; $("newGameBtn").disabled=rec||m==="arming"; $("endGameBtn").disabled=rec||m==="arming";
   $("lamp").classList.toggle("on",m==="recording"&&!S.paused);
   $("screen").classList.toggle("rec",rec); $("screen").classList.toggle("play",m==="playing"||m==="preview");
   $("tag").hidden=!(m==="recording"||m==="playing"||m==="preview");
@@ -743,6 +838,7 @@ function refreshButtons(){
   $("track").style.opacity=busy?.6:1; renderLens();
   $("players").querySelectorAll(".player").forEach(p=>p.classList.toggle("locked",busy));
   $("lib").querySelectorAll(".clip").forEach(b=>{ b.disabled=busy; });
+  paintClock();
   if (performance.now()>=hintHold){ const txt=nextStep(); if ($("hint").textContent!==txt) $("hint").textContent=txt; }
 }
 function rollDice(){

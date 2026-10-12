@@ -29,6 +29,7 @@ Na elke fase stoppen; Tom beoordeelt voordat de volgende begint.
 - **Terugkijken en exporteren**: je hoort alleen je eigen stem, niet het originele geluid van de video. Ondertiteling staat standaard uit.
 - **Punten**: na een take geeft de groep 1 tot 5 punten (gezichtjes, of toets 1 t/m 5). De punten gaan naar de speler van die take; de eerste beoordeling geeft de beurt door aan de volgende speler. Scores kunnen op nul gezet worden.
 - **Bibliotheek**: bewaarde clips en hun takes blijven op dit apparaat staan.
+- **Accounts** (alleen als `js/config.js` Supabase-gegevens heeft): registreren met naam, e-mail en wachtwoord (min. 6 tekens, eerst e-mail bevestigen), inloggen en uitloggen via de knop rechtsboven. Ingelogd zie je alleen de clips en takes van je account; die staan online en komen op elk apparaat terug. Zonder account speel je als gast op dit apparaat; gastclips kan je na inloggen meenemen naar je account. Geüploade videobestanden gaan niet online.
 - **Uitgesloten**: Tom's eerdere Simpsons-video komt niet terug als voorbeeld of standaardclip.
 - **Partij**: een aantal rondes (1, 3 of 5; standaard 3) of vrij spelen zonder einde. Elke speler doet één take per ronde; de eerste beoordeling van de take van wie aan de beurt is geeft de beurt door. Na de laatste ronde volgt de uitslag. Een partij kan ook handmatig afgerond worden.
 - **Spelers**: 1 tot 8, namen uniek (hoofdletters tellen niet), maximaal 24 tekens.
@@ -77,4 +78,5 @@ Na elke fase stoppen; Tom beoordeelt voordat de volgende begint.
 - `js/engine.js`: pure functies (`reduce`, `whyNot`, `standings`, `restore`, clipkeuze, `recordBlock`, `voicePos`). Werkt als `window.Engine` en als CommonJS in Node. Alle regels en constanten in `RULES` en `CHALLENGES`.
 - `js/app.js`: video-spelers (YouTube, Vimeo, bestand) achter één interface, microfoon en MediaRecorder, opslag (IndexedDB met melding als dat niet lukt), schermen en feedback. Spelstatus verandert alleen via `dispatch(actie)` naar de engine. Tijden staan in `TIMING`, opslagsleutels in `KEYS`, geluiden in `SFX`.
 - Spelstatus staat in localStorage `ss.players` (versie 2: spelers, beurt, rondes, ronde, klaar). Oude opslag (alleen spelers en beurt) wordt vrij spelen.
+- `js/config.js` (Supabase-URL en anon-sleutel, leeg = geen accounts) en `js/cloud.js` (`window.Cloud`: inloggen en online opslag; laadt supabase-js 2.45.4 van jsDelivr pas als er instellingen zijn). Elke clip en take heeft een `owner` (account-id of "gast"; oude data zonder owner = gast). Database-opzet: `supabase/schema.sql`, uitleg in `supabase/README.md`. Los testbestand maken: `python3 tools/build-preview.py uitvoer.html`.
 - Synchroon terugkijken: de stem wordt elke 100 ms vergeleken met de videotijd en opnieuw uitgelijnd bij meer dan 80 ms verschil.
