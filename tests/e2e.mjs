@@ -377,20 +377,22 @@ try {
 
     // bewaarde clips: deze sessie, met een knop die alles achter elkaar afspeelt
     await page.click("#saveClip").catch(() => {}); await sleep(300);
-    const lib = await S(page, () => ({ scope: document.querySelector('#libScope button[aria-pressed="true"]')?.dataset.scope, clips: document.querySelectorAll("#lib .clip").length, btn: document.getElementById("reelBtn").textContent, en: !document.getElementById("reelBtn").disabled }));
-    check("bewaarde clips tonen standaard deze sessie, met een knop om alles af te spelen", lib.scope === "sess" && lib.clips >= 1 && lib.en, JSON.stringify(lib));
+    const lib = await S(page, () => ({ scope: document.querySelector('#libScope button[aria-pressed="true"]')?.dataset.scope, now: sessionStorage.getItem("ss.sessionStart"), label: document.querySelector('#libScope button[aria-pressed="true"]')?.textContent, clips: document.querySelectorAll("#lib .clip").length, btn: document.getElementById("reelBtn").textContent, en: !document.getElementById("reelBtn").disabled }));
+    check("bewaarde clips staan per sessie met datum; de huidige sessie is gekozen", lib.scope === lib.now && /^🗓 Nu · \S+ \d+ \S+ \d\d:\d\d/.test(lib.label) && lib.clips >= 1 && lib.en, JSON.stringify(lib));
     await page.click("#reelBtn");
     await page.waitForFunction(() => window.__ss.reel && window.__ss.mode === "playing", null, { timeout: 8000 });
     check("de knop speelt de clips achter elkaar af (opnemen is dan geblokkeerd)", await page.isDisabled("#recBtn") && /Stop/.test(await page.textContent("#reelBtn")));
+    const fs = await S(page, () => ({ fs: document.getElementById("screen").classList.contains("fs"), w: document.getElementById("screen").getBoundingClientRect().width, vw: innerWidth, vctl: document.getElementById("vctl").hidden, tag: document.getElementById("tag").hidden, bar: !document.getElementById("fsBar").hidden }));
+    check("alle clips achter elkaar: volledig beeld, zonder pauzeknop in beeld", fs.fs && Math.abs(fs.w - fs.vw) < 2 && fs.vctl && fs.tag && fs.bar, JSON.stringify(fs));
     const fin = await page.waitForFunction(() => !window.__ss.reel, null, { timeout: 25000 }).then(() => true, () => false);
     check("na de laatste take stopt het afspelen vanzelf", fin && await mode(page) === "idle" && /Klaar: 1 clip/.test(await page.textContent("#toast")), await page.textContent("#toast"));
     await page.click("#reelBtn");
     await page.waitForFunction(() => window.__ss.reel && window.__ss.mode === "playing", null, { timeout: 8000 });
-    await sleep(500); await page.click("#stopBtn"); await sleep(400);
-    check("Stop breekt het achter elkaar afspelen af", await S(page, () => !window.__ss.reel && window.__ss.mode === "idle") && /gestopt/.test(await page.textContent("#toast")));
+    await sleep(500); await page.click("#fsStop"); await sleep(400);
+    check("Stop breekt het achter elkaar afspelen af en sluit het volledige beeld", await S(page, () => !window.__ss.reel && window.__ss.mode === "idle" && !document.getElementById("screen").classList.contains("fs")) && /gestopt/.test(await page.textContent("#toast")));
     await page.click('#libScope button[data-scope="all"]'); await sleep(200);
-    check("met Alle zie je ook clips van eerdere sessies", await S(page, () => document.querySelector('#libScope button[data-scope="all"]').getAttribute("aria-pressed") === "true"));
-    await page.click('#libScope button[data-scope="sess"]');
+    check("met Alle clips zie je ook clips van eerdere sessies", await S(page, () => document.querySelector('#libScope button[data-scope="all"]').getAttribute("aria-pressed") === "true"));
+    await page.click('#libScope button[aria-pressed="false"]');
 
     // automatisch bijwerken: nieuwe versie op de server -> pagina ververst zichzelf, wacht tot er niet meer gespeeld wordt
     let v = 1;
@@ -462,6 +464,14 @@ try {
     const r2 = await S(page, () => ({ n: window.__ss.takes.length, last: window.__ss.lastTake.who, now: window.__game().players[window.__game().turn].name }));
     check("personages: Opnieuw neemt Marge opnieuw op, daarna is Homer weer aan de beurt", r2.n === before && r2.last === "Marge" && r2.now === "Homer", JSON.stringify(r2));
     await page.screenshot({ path: path.join(OUT, "9-personages.png") });
+    // de hele sessie achter elkaar: het beeld loopt door zonder te pauzeren
+    const items = await S(page, () => document.getElementById("reelBtn").textContent);
+    await page.evaluate(() => { window.__pz = []; window.__pzT = setInterval(() => { const s = window.__ss; if (s.reel && s.src?.el) window.__pz.push({ p: s.src.el.paused, i: s.reel.i, m: s.mode }); }, 40); });
+    await page.click("#reelBtn");
+    const done = await page.waitForFunction(() => !window.__ss.reel, null, { timeout: 30000 }).then(() => true, () => false);
+    const pz = await S(page, () => { clearInterval(window.__pzT); const a = window.__pz; const first = a.findIndex(x => x.m === "playing"); return { n: a.length, items: Math.max(...a.map(x => x.i)) + 1, paused: a.slice(first).filter(x => x.p).length }; });
+    check("alle clips van de sessie lopen door zonder pauze tussendoor", done && pz.items >= 3 && pz.paused === 0, JSON.stringify({ ...pz, items, toast: await page.textContent("#toast") }));
+    await page.screenshot({ path: path.join(OUT, "10-bewaarde-clips.png"), fullPage: true });
     await page.context().close();
   }
 
