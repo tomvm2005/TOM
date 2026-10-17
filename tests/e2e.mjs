@@ -77,8 +77,8 @@ async function oneTake(page, score, { keyboard = false } = {}) {
   if (keyboard) await page.keyboard.press("Space"); else await page.click("#recBtn");
   await page.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 });
   await sleep(1500);
-  if (keyboard) await page.keyboard.press("Space"); else await page.click("#recBtn");
-  await page.waitForSelector("#rate:not([hidden])", { timeout: 15000 });
+  if (await mode(page) === "recording") { if (keyboard) await page.keyboard.press("Space"); else await page.click("#recBtn"); } // aan het einde van de video stopt de opname vanzelf
+  await page.waitForSelector("#rate:not([hidden])", { timeout: 15000 }).catch(async e => { throw new Error("geen puntenpaneel: " + JSON.stringify(await S(page, () => ({ m: window.__ss.mode, reel: !!window.__ss.reel, q: window.__ss.rateQueue?.length, takes: window.__ss.takes.slice().sort((a,b)=>a.created-b.created).map(t=>[t.who,+t.start.toFixed(1),+t.end.toFixed(1)]).join(" "), clip: window.__ss.clipStart, t: window.__ss.src?.time(), vs: window.__ss.vstate, pl: window.__ss.playing && [window.__ss.playing.start, window.__ss.playing.end], ri: window.__ss.reel && [window.__ss.reel.i, window.__ss.reel.items.length], g: window.__game(), err: document.getElementById("err").hidden ? "" : document.getElementById("err").textContent, hint: document.getElementById("hint").textContent })))); });
   const drift = await S(page, () => window.__ss.drift.slice());
   if (keyboard) await page.keyboard.press(String(score)); else await page.click(`#faces button:nth-child(${score})`);
   await sleep(200);
@@ -348,7 +348,7 @@ try {
   // ===== Opnemen tijdens bekijken, door-praten na het einde van de clip, lijntje gelijk met timer, automatisch bijwerken =====
   {
     const { page } = await open(browser, { init: () => { try { localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
-    await page.waitForSelector("#startDlg[open]"); await page.fill("#startName", "Tess"); await page.click("#startAdd"); await page.click("#startGo");
+    await page.waitForSelector("#startDlg[open]"); await page.fill("#startName", "Tess"); await page.click("#startAdd"); await page.uncheck("#flowOn"); await page.click("#startGo"); // los per speler: stoppen aan het einde van de clip
     await page.setInputFiles("#file", LONG);
     await page.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 100); await sleep(300);
     await page.click('#lens button[data-len="10"]'); await sleep(200);
@@ -427,7 +427,7 @@ try {
     await page.click("#teamBtn"); await sleep(150);
     const team = await S(page, () => ({ names: window.__game().players.map(p => p.name), free: document.querySelector('#roundSeg button[aria-pressed="true"]')?.textContent }));
     check("Team: één naam, vrij spelen", team.names.join() === "Team" && team.free === "Vrij spelen", JSON.stringify(team));
-    await page.click("#startGo");
+    await page.uncheck("#flowOn"); await page.click("#startGo"); // los per speler (doorlopend heeft een eigen test)
     await page.setInputFiles("#file", LONG);
     await page.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 100); await sleep(300);
     await page.click('#lens button[data-len="10"]'); await sleep(200);
@@ -478,6 +478,41 @@ try {
     const pz = await S(page, () => { clearInterval(window.__pzT); const a = window.__pz; const first = a.findIndex(x => x.m === "playing"); return { n: a.length, items: Math.max(...a.map(x => x.i)) + 1, paused: a.slice(first).filter(x => x.p).length }; });
     check("alle clips van de sessie lopen door zonder pauze tussendoor", done && pz.items >= 3 && pz.paused === 0, JSON.stringify({ ...pz, items, toast: await page.textContent("#toast") }));
     await page.screenshot({ path: path.join(OUT, "10-bewaarde-clips.png"), fullPage: true });
+    await page.context().close();
+  }
+
+  // ===== Doorlopend: de video loopt door naar de volgende speler (0:00–0:10, dan 0:10–0:20) =====
+  {
+    const { page } = await open(browser, { init: () => { try { localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
+    await page.waitForSelector("#startDlg[open]");
+    for (const n of ["Anna", "Bram"]) { await page.fill("#startName", n); await page.click("#startAdd"); }
+    check("doorlopend staat standaard aan", await page.isChecked("#flowOn"));
+    await page.click(`#roundSeg button:text-is("1 ronde")`); await page.click("#startGo");
+    await page.setInputFiles("#file", LONG);
+    await page.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 100); await sleep(300);
+    await page.click('#lens button[data-len="10"]'); await sleep(200);
+    const c0 = await S(page, () => window.__ss.clipStart);
+    await page.click("#preview"); await sleep(400); await page.click("#recBtn");
+    await page.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 });
+    await page.evaluate(() => { window.__fl = []; window.__flT = setInterval(() => { const s = window.__ss; if (s.mode === "recording") window.__fl.push({ p: s.src.el.paused, who: s.recPlayerId }); }, 40); });
+    const handed = await page.waitForFunction(() => window.__ss.mode === "recording" && window.__ss.recPlayerId !== window.__game().players[0].id, null, { timeout: 15000 }).then(() => true, () => false);
+    const mid = await S(page, () => ({ start: window.__ss.clipStart, who: window.__game().players[window.__game().turn].name, pop: document.getElementById("turnPop").textContent, mic: !!window.__ss.stream }));
+    check("na 10 seconden neemt Bram meteen op, vanaf 0:10 in de clip", handed && Math.abs(mid.start - (c0 + 10)) < 0.3 && mid.who === "Bram" && /Bram/.test(mid.pop) && mid.mic, JSON.stringify({ ...mid, c0 }));
+    const stopped = await page.waitForFunction(() => window.__ss.mode !== "recording", null, { timeout: 15000 }).then(() => true, () => false);
+    const fl = await S(page, () => { clearInterval(window.__flT); return { n: window.__fl.length, paused: window.__fl.filter(x => x.p).length }; });
+    check("de video stopt niet bij de wissel van speler", stopped && fl.n > 100 && fl.paused === 0, JSON.stringify(fl));
+    check("na het laatste stuk van de partij stopt de opname en gaat de microfoon uit", await S(page, () => window.__ss.stream === null));
+    await page.waitForSelector("#rate:not([hidden])", { timeout: 40000 });
+    const tk = await S(page, () => window.__ss.takes.slice().sort((a, b) => a.created - b.created).map(t => ({ who: t.who, s: +t.start.toFixed(2), e: +t.end.toFixed(2), len: +(t.buffer.duration - t.offset).toFixed(2) })));
+    check("twee takes: Anna 0:00–0:10 en Bram 0:10–0:20 van de clip", tk.length === 2 && tk[0].who === "Anna" && tk[1].who === "Bram" && Math.abs(tk[0].e - tk[1].s) < 0.3 && Math.abs(tk[0].e - tk[0].s - 10) < 0.4 && Math.abs(tk[1].e - tk[1].s - 10) < 0.4, JSON.stringify(tk));
+    check("de opname van elke take is even lang als zijn stuk video", tk.every(t => Math.abs(t.len - (t.e - t.s)) < 0.5), JSON.stringify(tk));
+    check("na het terugkijken: punten per take, eerst Anna", /Anna.*1 van 2/.test(await page.textContent("#rateQ")), await page.textContent("#rateQ"));
+    await page.keyboard.press("4"); await sleep(600);
+    check("dan Bram", /Bram.*2 van 2/.test(await page.textContent("#rateQ")), await page.textContent("#rateQ"));
+    await page.keyboard.press("2");
+    await page.waitForSelector("#resultDlg[open]", { timeout: 5000 });
+    const g = await S(page, () => window.__game());
+    check("daarna de uitslag, met de punten bij de goede speler", g.done && g.players[0].pts === 4 && g.players[1].pts === 2 && /Anna wint/.test(await page.textContent("#resultTitle")), JSON.stringify(g.players));
     await page.context().close();
   }
 

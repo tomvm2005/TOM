@@ -54,7 +54,7 @@ function newState(opts = {}) {
     .map(p => ({ id: String(p.id), name: cleanName(p.name), pts: 0 }));
   const style = RULES.styles.includes(opts.style) ? opts.style : RULES.defaultStyle;
   const rounds = style === "personage" ? 0 : RULES.roundOptions.includes(opts.rounds) ? opts.rounds : RULES.defaultRounds;
-  return { v: 2, players, turn: 0, rounds, round: 1, done: false, style };
+  return { v: 2, players, turn: 0, rounds, round: 1, done: false, style, flow: opts.flow !== false };
 }
 const isPersonage = s => s.style === "personage";
 
@@ -153,7 +153,8 @@ function reduce(s, a) {
       if (p) p.pts += a.score - (a.prev || 0);
       // Alleen de eerste beoordeling van een take van wie aan de beurt is, geeft de beurt door.
       // Met personages gaat de beurt al door als de opname stopt, dus punten geven doet dat nooit.
-      const isTurnTake = !s.done && !isPersonage(s) && a.prev == null && s.players[s.turn] && s.players[s.turn].id === a.playerId;
+      // Bij doorlopend opnemen gaat de beurt al door tijdens het opnemen; punten geven achteraf (review) geeft hem niet nog eens door.
+      const isTurnTake = !s.done && !isPersonage(s) && !a.review && a.prev == null && s.players[s.turn] && s.players[s.turn].id === a.playerId;
       return isTurnTake ? advance(next) : next;
     }
     case "unrate": {
@@ -172,7 +173,7 @@ function reduce(s, a) {
       players.forEach(p => { p.pts = 0; });
       const style = a.style || s.style || RULES.defaultStyle;
       const rounds = style === "personage" ? 0 : RULES.roundOptions.includes(a.rounds) ? a.rounds : s.rounds;
-      return { ...next, turn: 0, round: 1, done: false, rounds, style };
+      return { ...next, turn: 0, round: 1, done: false, rounds, style, flow: a.flow != null ? a.flow !== false : s.flow !== false };
     }
     case "pass": // volgend personage (of volgende speler) zonder punten te geven
       return advance(next);
@@ -225,7 +226,7 @@ function restore(raw) {
     let round = !v1 && isInt(raw.round) && raw.round >= 1 ? raw.round : 1;
     if (rounds) round = Math.min(round, rounds);
     const style = !v1 && RULES.styles.includes(raw.style) ? raw.style : RULES.defaultStyle;
-    return { v: 2, players, turn, rounds: style === "personage" ? 0 : rounds, round, done: !v1 && raw.done === true, style, legacy: v1 };
+    return { v: 2, players, turn, rounds: style === "personage" ? 0 : rounds, round, done: !v1 && raw.done === true, style, flow: raw.flow !== false, legacy: v1 };
   } catch { return null; }
 }
 
@@ -254,6 +255,13 @@ function pickClip(rand, dur, len, used) {
 }
 function findClip(clips, srcKey, start) {
   return clips.find(c => c.srcKey === srcKey && Math.abs(c.start - start) < RULES.clipMatchTolerance) || null;
+}
+// Doorlopend opnemen: aan het einde van een stuk gaat de opname meteen door naar de volgende speler,
+// behalve als de video af is of de partij daarmee afgelopen zou zijn (dan stopt de opname).
+function handOver(s, segEnd, dur) {
+  if (dur > 0 && segEnd >= dur - RULES.minSegment) return { go: false, why: "end" };
+  if (reduce(s, { type: "pass" }).done) return { go: false, why: "done" };
+  return { go: true, why: "" };
 }
 // Waar begint de clip van de volgende speler? Precies waar de vorige take ophield (zo spreken jullie samen de video in).
 // atEnd = de video is af, er is geen stuk meer over.
@@ -292,5 +300,5 @@ function recordBlock(ctx) {
 function voicePos(take, videoTime) { return take.offset + (videoTime - take.start); }
 
 return { RULES, CHALLENGES, rng, newState, whyNot, reduce, standings, current, restore,
-  isPersonage, nextClipStart, exactStart, clampStart, clipEnd, usedRanges, freeStarts, pickClip, findClip, pickChallenge, recordBlock, voicePos, cleanName };
+  isPersonage, handOver, nextClipStart, exactStart, clampStart, clipEnd, usedRanges, freeStarts, pickClip, findClip, pickChallenge, recordBlock, voicePos, cleanName };
 });
