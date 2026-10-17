@@ -218,6 +218,7 @@ aside{display:grid;gap:16px}
 .player .x{background:none;border:0;padding:2px 6px;color:var(--muted);font-size:14px;box-shadow:none}
 .player .x:hover{color:var(--onair);background:#fff1f3;transform:none}
 .addp{display:flex;gap:8px}
+.team-btn{justify-self:start;margin-top:8px}
 .addp input{flex:1;min-width:0;background:#fff;border:1.5px solid var(--line);color:var(--fg);border-radius:12px;padding:9px 12px;font:500 15px var(--f-body);transition:border-color .2s,box-shadow .25s}
 .addp input:focus{outline:none;border-color:var(--cue);box-shadow:0 0 0 4px rgba(47,134,255,.14)}
 .addp button{padding:8px 15px;font-size:17px;background:linear-gradient(135deg,var(--btn-a),var(--btn-b));color:#fff;border:0;box-shadow:var(--glow)}
@@ -423,6 +424,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         </div>
         <div class="transport">
           <button class="rec-btn" id="recBtn" disabled aria-describedby="hint"><span class="dot"></span><span id="recLabel">Opnemen</span></button>
+          <button id="redoBtn" disabled title="Neem de laatste take opnieuw op (R). De oude take wordt verwijderd zodra de nieuwe bewaard is.">↺ Opnieuw</button>
           <button id="pauseBtn" disabled><span id="pauseLabel">⏸ Pauze</span></button>
           <button id="playLast" disabled>▶ Laatste take</button>
           <button id="stopBtn" disabled>■ Stop</button>
@@ -485,12 +487,14 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 <dialog id="startDlg" aria-labelledby="startTitle">
   <div class="dlg">
     <h2 id="startTitle">Nieuwe partij</h2>
-    <p class="sub">Wie doen er mee? Iedereen spreekt om de beurt een clip in, de rest geeft punten.</p>
+    <fieldset class="seg-wrap" id="styleWrap"><legend>Hoe spelen jullie?</legend><div class="lens seg" id="styleSeg"></div></fieldset>
+    <p class="sub" id="startSub">Wie doen er mee? Iedereen spreekt om de beurt een clip in, de rest geeft punten.</p>
     <div class="players" id="startPlayers" role="list" aria-label="Spelers"></div>
     <div class="addp"><input id="startName" placeholder="Naam toevoegen" maxlength="24" aria-label="Naam van speler"><button type="button" id="startAdd" aria-label="Speler toevoegen">+</button></div>
+    <button type="button" class="sm team-btn" id="teamBtn" title="Iedereen samen onder één naam, zonder einde">👥 Samen als één Team (vrij spelen)</button>
     <p class="why" id="startWhy" aria-live="polite"></p>
-    <fieldset class="seg-wrap"><legend>Hoeveel rondes?</legend><div class="lens seg" id="roundSeg"></div></fieldset>
-    <fieldset class="seg-wrap"><legend>Hoe lang is een clip?</legend><div class="lens seg" id="lenSeg"></div></fieldset>
+    <fieldset class="seg-wrap" id="roundWrap"><legend>Hoeveel rondes?</legend><div class="lens seg" id="roundSeg"></div></fieldset>
+    <fieldset class="seg-wrap" id="lenWrap"><legend>Hoe lang is een clip?</legend><div class="lens seg" id="lenSeg"></div></fieldset>
     <div class="dlg-btns"><button type="button" class="btn-cue" id="startGo">Start de partij</button></div>
   </div>
 </dialog>
@@ -508,8 +512,8 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
   <div class="dlg">
     <h2 id="setTitle">Instellingen</h2>
     <label class="switch"><input type="checkbox" id="soundOn" checked> <span>Geluidseffecten (aftellen, punten, winnaar)</span></label>
-    <fieldset class="seg-wrap"><legend>Rondes in deze partij</legend><div class="lens seg" id="setRoundSeg"></div></fieldset>
-    <fieldset class="seg-wrap"><legend>Cliplengte</legend><div class="lens seg" id="setLenSeg"></div></fieldset>
+    <fieldset class="seg-wrap" id="setRoundWrap"><legend>Rondes in deze partij</legend><div class="lens seg" id="setRoundSeg"></div></fieldset>
+    <fieldset class="seg-wrap" id="setLenWrap"><legend>Cliplengte</legend><div class="lens seg" id="setLenSeg"></div></fieldset>
     <div class="dlg-btns left"><button type="button" class="sm" id="resetScores">Scores op nul</button><button type="button" class="sm" id="replayHelp">Uitleg opnieuw</button></div>
     <div class="dlg-btns"><button type="button" class="btn-cue" data-close="close">Klaar</button></div>
   </div>

@@ -327,3 +327,42 @@ test("volledige partij met vaste seed: 3 spelers, 3 rondes", () => {
   assert.equal(E.standings(s).winners[0].pts, Math.max(...Object.values(totals)));
   assert.deepEqual(playGame(2026), { s, clips, takes }, "dezelfde seed geeft precies dezelfde partij");
 });
+
+// ---------- Doorlopend spelen, Team, personages, opnieuw ----------
+test("de volgende clip begint precies waar de vorige take ophield", () => {
+  assert.deepEqual(E.nextClipStart(10.02, 300), { start: 10, atEnd: false });
+  assert.deepEqual(E.nextClipStart(7.44, 300), { start: 7.4, atEnd: false }, "eerder gestopt: verder vanaf daar");
+  assert.deepEqual(E.nextClipStart(299.8, 300), { start: null, atEnd: true }, "video af");
+  assert.equal(E.exactStart(12.34, 300), 12.3);
+  assert.equal(E.exactStart(400, 300), 299.5, "binnen de video");
+});
+test("Team: vrij spelen met één naam", () => {
+  let s = E.newState({ players: [{ id: "a", name: "Anna" }, { id: "b", name: "Bram" }], rounds: 3 });
+  s = E.reduce(s, { type: "team", id: "t" });
+  assert.deepEqual(s.players.map(p => p.name), ["Team"]);
+  assert.equal(s.rounds, 0, "vrij spelen");
+  s = E.reduce(s, { type: "rate", playerId: "t", score: 4 });
+  assert.equal(s.players[0].pts, 4); assert.equal(s.turn, 0); assert.equal(s.done, false);
+});
+test("personages: geen rondes, de beurt gaat door bij stoppen, punten geven geeft de beurt niet door", () => {
+  let s = E.newState({ players: [{ id: "h", name: "Homer" }, { id: "m", name: "Marge" }], style: "personage", rounds: 3 });
+  assert.equal(s.style, "personage"); assert.equal(s.rounds, 0);
+  assert.ok(E.whyNot(s, { type: "setRounds", rounds: 3 }), "rondes kan niet");
+  s = E.reduce(s, { type: "pass" }); assert.equal(E.current(s).name, "Marge");
+  s = E.reduce(s, { type: "rate", playerId: "m", score: 5 });
+  assert.equal(E.current(s).name, "Marge", "punten geven geeft de beurt niet door");
+  s = E.reduce(s, { type: "pass" }); assert.equal(E.current(s).name, "Homer"); assert.equal(s.round, 2); assert.equal(s.done, false);
+  assert.equal(E.recordBlock({ hasSource: true, watched: false, mode: "idle", personage: true }), "", "met personages hoef je niet eerst te kijken");
+  const back = E.restore(JSON.parse(JSON.stringify(s))); assert.equal(back.style, "personage");
+  assert.equal(E.restore({ v: 2, players: [{ id: "a", name: "A" }] }).style, "beurt", "oude opslag = om de beurt");
+  s = E.reduce(s, { type: "newGame", style: "beurt", rounds: 3 }); assert.equal(s.style, "beurt"); assert.equal(s.rounds, 3);
+});
+test("opnieuw: terug naar de beurt van de vorige take, ook na het einde van de partij", () => {
+  let s = E.newState({ players: [{ id: "a", name: "Anna" }, { id: "b", name: "Bram" }], rounds: 1 });
+  s = E.reduce(s, { type: "rate", playerId: "a", score: 3 });
+  s = E.reduce(s, { type: "rate", playerId: "b", score: 2 }); assert.equal(s.done, true);
+  s = E.reduce(s, { type: "unrate", playerId: "b", score: 2 });
+  s = E.reduce(s, { type: "rewind", turn: 1, round: 1 });
+  assert.equal(s.done, false); assert.equal(E.current(s).name, "Bram"); assert.equal(s.players[1].pts, 0);
+  assert.ok(E.whyNot(s, { type: "rewind", turn: 5, round: 1 }));
+});

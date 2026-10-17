@@ -19,6 +19,10 @@ const RULES = Object.freeze({
   freeStep: 5,             // stapgrootte (s) bij het zoeken naar een stuk dat nog niet gespeeld is
   clipMatchTolerance: 1,   // twee clips met een begin binnen 1 s van elkaar zijn dezelfde clip
   placeholderName: "Speler 1",
+  teamName: "Team",        // vrij spelen met één naam: iedereen samen
+  styles: Object.freeze(["beurt", "personage"]), // beurt = om de beurt een clip; personage = elke naam is een personage uit de video
+  defaultStyle: "beurt",
+  minSegment: 0.5,         // s: korter dan dit aan het einde van de video telt niet meer als nieuw stuk
 });
 
 const CHALLENGES = Object.freeze([
@@ -44,13 +48,15 @@ function rng(seed) {
 }
 
 // ---------- Spelstatus ----------
-// { v:2, players:[{id,name,pts}], turn, rounds (0 = vrij), round (vanaf 1), done }
+// { v:2, players:[{id,name,pts}], turn, rounds (0 = vrij), round (vanaf 1), done, style ("beurt" of "personage") }
 function newState(opts = {}) {
   const players = (opts.players && opts.players.length ? opts.players : [{ id: "p1", name: RULES.placeholderName }])
     .map(p => ({ id: String(p.id), name: cleanName(p.name), pts: 0 }));
-  const rounds = RULES.roundOptions.includes(opts.rounds) ? opts.rounds : RULES.defaultRounds;
-  return { v: 2, players, turn: 0, rounds, round: 1, done: false };
+  const style = RULES.styles.includes(opts.style) ? opts.style : RULES.defaultStyle;
+  const rounds = style === "personage" ? 0 : RULES.roundOptions.includes(opts.rounds) ? opts.rounds : RULES.defaultRounds;
+  return { v: 2, players, turn: 0, rounds, round: 1, done: false, style };
 }
+const isPersonage = s => s.style === "personage";
 
 const cleanName = n => String(n == null ? "" : n).replace(/\s+/g, " ").trim().slice(0, RULES.maxName);
 const isInt = n => typeof n === "number" && Number.isInteger(n);
@@ -93,8 +99,22 @@ function whyNot(s, a) {
       return "";
     case "setRounds":
       if (!RULES.roundOptions.includes(a.rounds)) return "Kies vrij spelen, 1, 3 of 5 rondes.";
+      if (isPersonage(s) && a.rounds) return "Met personages speel je door tot de video af is.";
       return "";
-    case "resetScores": case "newGame": case "endGame":
+    case "pass":
+      if (s.done) return "De partij is afgelopen.";
+      return "";
+    case "rewind":
+      if (!isInt(a.turn) || a.turn < 0 || a.turn >= s.players.length) return "Die speler bestaat niet.";
+      if (!isInt(a.round) || a.round < 1) return "Ongeldige ronde.";
+      return "";
+    case "team":
+      if (!a.id) return "Speler zonder id.";
+      return "";
+    case "newGame":
+      if (a.style != null && !RULES.styles.includes(a.style)) return "Onbekende spelvorm.";
+      return "";
+    case "resetScores": case "endGame":
       return "";
     default:
       return "Onbekende actie.";
@@ -132,7 +152,8 @@ function reduce(s, a) {
       const p = players.find(x => x.id === a.playerId);
       if (p) p.pts += a.score - (a.prev || 0);
       // Alleen de eerste beoordeling van een take van wie aan de beurt is, geeft de beurt door.
-      const isTurnTake = !s.done && a.prev == null && s.players[s.turn] && s.players[s.turn].id === a.playerId;
+      // Met personages gaat de beurt al door als de opname stopt, dus punten geven doet dat nooit.
+      const isTurnTake = !s.done && !isPersonage(s) && a.prev == null && s.players[s.turn] && s.players[s.turn].id === a.playerId;
       return isTurnTake ? advance(next) : next;
     }
     case "unrate": {
@@ -147,9 +168,18 @@ function reduce(s, a) {
       next.rounds = a.rounds;
       next.done = a.rounds > 0 && s.round > a.rounds;
       return next;
-    case "newGame":
+    case "newGame": {
       players.forEach(p => { p.pts = 0; });
-      return { ...next, turn: 0, round: 1, done: false, rounds: RULES.roundOptions.includes(a.rounds) ? a.rounds : s.rounds };
+      const style = a.style || s.style || RULES.defaultStyle;
+      const rounds = style === "personage" ? 0 : RULES.roundOptions.includes(a.rounds) ? a.rounds : s.rounds;
+      return { ...next, turn: 0, round: 1, done: false, rounds, style };
+    }
+    case "pass": // volgend personage (of volgende speler) zonder punten te geven
+      return advance(next);
+    case "rewind": // terug naar een eerdere beurt, bijvoorbeeld als een take opnieuw gedaan wordt
+      return { ...next, turn: a.turn, round: s.rounds ? Math.min(a.round, s.rounds) : a.round, done: false };
+    case "team": // vrij spelen als één groep: alleen de naam Team
+      return { ...next, players: [{ id: String(a.id), name: RULES.teamName, pts: 0 }], turn: 0, round: 1, done: false, rounds: 0, style: RULES.defaultStyle };
     case "endGame":
       return { ...next, done: true };
   }
@@ -194,7 +224,8 @@ function restore(raw) {
     const turn = isInt(raw.turn) && raw.turn >= 0 && raw.turn < players.length ? raw.turn : 0;
     let round = !v1 && isInt(raw.round) && raw.round >= 1 ? raw.round : 1;
     if (rounds) round = Math.min(round, rounds);
-    return { v: 2, players, turn, rounds, round, done: !v1 && raw.done === true, legacy: v1 };
+    const style = !v1 && RULES.styles.includes(raw.style) ? raw.style : RULES.defaultStyle;
+    return { v: 2, players, turn, rounds: style === "personage" ? 0 : rounds, round, done: !v1 && raw.done === true, style, legacy: v1 };
   } catch { return null; }
 }
 
@@ -224,6 +255,18 @@ function pickClip(rand, dur, len, used) {
 function findClip(clips, srcKey, start) {
   return clips.find(c => c.srcKey === srcKey && Math.abs(c.start - start) < RULES.clipMatchTolerance) || null;
 }
+// Waar begint de clip van de volgende speler? Precies waar de vorige take ophield (zo spreken jullie samen de video in).
+// atEnd = de video is af, er is geen stuk meer over.
+function nextClipStart(prevEnd, dur) {
+  const t = Math.round(Math.max(0, Number(prevEnd) || 0) * 10) / 10;
+  if (dur > 0 && t >= dur - RULES.minSegment) return { start: null, atEnd: true };
+  return { start: t, atEnd: false };
+}
+// Een bewaard begin precies overnemen (op 0,1 s), maar wel binnen de video.
+function exactStart(start, dur) {
+  const t = Math.round(Math.max(0, Number(start) || 0) * 10) / 10;
+  return dur > 0 ? Math.min(t, Math.max(0, Math.round((dur - RULES.minSegment) * 10) / 10)) : t;
+}
 function pickChallenge(rand, currentChallenge, list = CHALLENGES) {
   if (list.length < 2) return list[0] || null;
   let c;
@@ -232,7 +275,7 @@ function pickChallenge(rand, currentChallenge, list = CHALLENGES) {
 }
 
 // ---------- Mag je nu opnemen? ----------
-// ctx: { hasSource, watched, mode, done, exporting }
+// ctx: { hasSource, watched, mode, done, exporting, personage }
 function recordBlock(ctx) {
   if (!ctx.hasSource) return "Laad eerst een video.";
   if (ctx.mode === "countdown" || ctx.mode === "recording") return "";
@@ -240,7 +283,7 @@ function recordBlock(ctx) {
   if (ctx.mode === "playing") return "Even wachten: er wordt een take afgespeeld.";
   if (ctx.mode && ctx.mode !== "idle" && ctx.mode !== "preview") return "Even wachten…"; // tijdens bekijken mag je meteen opnemen
   if (ctx.done) return "De partij is afgelopen. Start een nieuwe partij.";
-  if (!ctx.watched) return "Bekijk eerst de clip, dan weet je waar je overheen praat.";
+  if (!ctx.watched && !ctx.personage) return "Bekijk eerst de clip, dan weet je waar je overheen praat.";
   return "";
 }
 
@@ -249,5 +292,5 @@ function recordBlock(ctx) {
 function voicePos(take, videoTime) { return take.offset + (videoTime - take.start); }
 
 return { RULES, CHALLENGES, rng, newState, whyNot, reduce, standings, current, restore,
-  clampStart, clipEnd, usedRanges, freeStarts, pickClip, findClip, pickChallenge, recordBlock, voicePos, cleanName };
+  isPersonage, nextClipStart, exactStart, clampStart, clipEnd, usedRanges, freeStarts, pickClip, findClip, pickChallenge, recordBlock, voicePos, cleanName };
 });

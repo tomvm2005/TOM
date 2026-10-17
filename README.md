@@ -28,6 +28,8 @@ Sneltoetsen: spatie opnemen/stoppen, W bekijk clip, P pauze (of laatste take als
 - Accounts: met een account (knop rechtsboven) staan je clips en takes online en zie je ze op elk apparaat terug. Dit staat aan zodra `js/config.js` is ingevuld; zie `supabase/README.md`.
 - Een partij die bezig was, gaat na herladen gewoon verder.
 - De opname stopt precies aan het einde van de clip en de microfoon gaat dan meteen uit.
+- Na de punten gaat de volgende speler verder waar de vorige take stopte. Met Opnieuw neem je de laatste take over; de oude verdwijnt pas als de nieuwe bewaard is.
+- Spelvorm Personages (eerst alleen op de testlink): elke naam is een personage; je spreekt in tot het volgende personage in beeld komt en drukt dan op Stop opname.
 - "Deze sessie" onder Bewaarde clips = clips die in dit tabblad zijn gemaakt of waarop hier is ingesproken (met alleen de takes van nu). De knop "Speel alle clips achter elkaar" speelt alle takes van die clips na elkaar af.
 
 ## Structuur

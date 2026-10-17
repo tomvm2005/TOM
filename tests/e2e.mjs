@@ -153,10 +153,13 @@ try {
     g = await S(page, () => window.__game());
     check("herladen: partij gaat verder in ronde 2 met dezelfde scores", g.round === 2 && g.players.map(p => p.pts).join() === "4,2,5" && await page.locator("dialog[open]").count() === 0);
     check("herladen: alle 3 takes staan er nog", await S(page, () => window.__ss.takes.length) === 3);
+    const chain = await S(page, () => { const ts = window.__ss.takes.slice().sort((a, b) => a.created - b.created); const cs = window.__ss.clips; return ts.map(t => ({ s: cs.find(c => c.id === t.clipId).start, st: t.start, e: t.end })); });
+    check("doorlopend: elke volgende speler begint waar de vorige take ophield", chain.length === 3 && chain.slice(1).every((x, i) => Math.abs(x.s - chain[i].e) < 0.15), JSON.stringify(chain.map(x => [x.s, +x.e.toFixed(2)])));
     await page.click("#lib .clip");
     await page.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 0);
     await sleep(300);
-    check("bewaarde clip opent weer met zijn takes (video uit de opslag)", (await page.textContent("#takeCount")) === "3");
+    const own = await S(page, () => window.__ss.takes.filter(t => t.clipId === window.__ss.clipId).length);
+    check("bewaarde clip opent weer met zijn takes (video uit de opslag)", own >= 1 && (await page.textContent("#takeCount")) === String(own));
 
     for (const sc of [3, 1, 4, 2, 5, 3]) allDrift.push(...await oneTake(page, sc));
     await page.waitForSelector("#resultDlg[open]", { timeout: 5000 });
@@ -405,6 +408,68 @@ try {
     check("zodra het rustig is ververst de pagina zichzelf", reloaded);
     await page.waitForSelector("#players .player"); 
     check("de partij en de spelers blijven bewaard na het verversen", await S(page, () => window.__game().players.some(p => p.name === "Tess")));
+    await page.context().close();
+  }
+
+  // ===== Doorlopend spelen, Team, Opnieuw en personages =====
+  {
+    const { page } = await open(browser, { init: () => { try { localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
+    await page.waitForSelector("#startDlg[open]");
+    for (const n of ["Anna", "Bram"]) { await page.fill("#startName", n); await page.click("#startAdd"); }
+    await page.click("#teamBtn"); await sleep(150);
+    const team = await S(page, () => ({ names: window.__game().players.map(p => p.name), free: document.querySelector('#roundSeg button[aria-pressed="true"]')?.textContent }));
+    check("Team: één naam, vrij spelen", team.names.join() === "Team" && team.free === "Vrij spelen", JSON.stringify(team));
+    await page.click("#startGo");
+    await page.setInputFiles("#file", LONG);
+    await page.waitForFunction(() => window.__ss.src && window.__ss.src.duration() > 100); await sleep(300);
+    await page.click('#lens button[data-len="10"]'); await sleep(200);
+    const rec = async ms => { await page.waitForFunction(() => window.__ss.mode === "recording", null, { timeout: 8000 }); await sleep(ms); await page.click("#recBtn"); };
+    check("Opnieuw kan pas als er een take is", await page.isDisabled("#redoBtn"));
+    await page.click("#preview"); await sleep(400); await page.click("#recBtn"); await rec(2000);
+    await page.waitForSelector("#rate:not([hidden])", { timeout: 15000 });
+    const first = await S(page, () => ({ id: window.__ss.takes[0].id, end: window.__ss.takes[0].end, clip: window.__ss.clipStart }));
+    check("Opnieuw staat naast Opnemen en is te gebruiken na een take", await page.isEnabled("#redoBtn"));
+    await page.click("#faces button:nth-child(4)"); await sleep(300);
+    const nxt = await S(page, () => ({ start: window.__ss.clipStart, range: document.getElementById("range").textContent, pts: window.__game().players[0].pts }));
+    check("de volgende clip begint waar de take ophield (Team speelt verder)", Math.abs(nxt.start - first.end) < 0.15 && nxt.pts === 4, JSON.stringify({ ...nxt, end: first.end }));
+    // Opnieuw: terug naar dezelfde plek, opnemen, de oude take verdwijnt en zijn punten ook
+    await page.click("#redoBtn"); await rec(1500);
+    await page.waitForSelector("#rate:not([hidden])", { timeout: 15000 });
+    const redo = await S(page, () => ({ n: window.__ss.takes.length, id: window.__ss.takes[0].id, start: window.__ss.clips.find(c => c.id === window.__ss.takes[0].clipId).start, pts: window.__game().players[0].pts }));
+    check("Opnieuw: de oude take is vervangen door de nieuwe, op dezelfde plek", redo.n === 1 && redo.id !== first.id && Math.abs(redo.start - first.clip) < 0.15, JSON.stringify(redo));
+    check("Opnieuw: de punten van de oude take zijn weg", redo.pts === 0);
+    await page.click("#faces button:nth-child(2)"); await sleep(300);
+    check("na de nieuwe take gaat het weer verder vanaf het einde ervan", await S(page, () => Math.abs(window.__ss.clipStart - window.__ss.takes[0].end) < 0.15 && window.__game().players[0].pts === 2));
+
+    // Personages: elke naam is een personage, opnemen loopt tot je stopt
+    await page.click("#newGameBtn"); await page.waitForSelector("#startDlg[open]");
+    await page.click('#styleSeg button:text-is("🎭 Personages")'); await sleep(150);
+    check("personages: geen rondes en geen cliplengte te kiezen", await page.isHidden("#roundWrap") && await page.isHidden("#lenWrap") && /personage/i.test(await page.getAttribute("#startName", "placeholder")));
+    for (const n of ["Homer", "Marge"]) { await page.fill("#startName", n); await page.click("#startAdd"); }
+    await page.click('#startPlayers .player:has-text("Team") .x');
+    await page.click("#startGo"); await sleep(300);
+    const p0 = await S(page, () => ({ style: window.__game().style, names: window.__game().players.map(p => p.name), start: window.__ss.clipStart, lens: document.getElementById("lens").hidden, blocked: document.getElementById("recBtn").classList.contains("blocked"), hint: document.getElementById("hint").textContent }));
+    check("personages: begint bij 0:00, opnemen mag meteen", p0.style === "personage" && p0.names.join() === "Homer,Marge" && p0.start === 0 && p0.lens && !p0.blocked && /Homer/.test(p0.hint), JSON.stringify(p0));
+    await page.click("#recBtn"); await rec(2000); await sleep(600);
+    const h = await S(page, () => { const t = window.__ss.takes.slice().sort((a, b) => b.created - a.created)[0]; return { who: t.who, len: t.end - t.start, end: t.end, start: window.__ss.clipStart, now: window.__game().players[window.__game().turn].name, rate: !document.getElementById("rate").hidden, mode: window.__ss.mode }; });
+    check("personages: stoppen geeft de beurt aan het volgende personage, vanaf dezelfde plek", h.who === "Homer" && h.now === "Marge" && Math.abs(h.start - h.end) < 0.15 && !h.rate && h.mode === "idle", JSON.stringify(h));
+    await page.click("#recBtn"); await rec(1500); await sleep(600);
+    const m = await S(page, () => { const ts = window.__ss.takes.filter(t => t.created >= Date.now() - 60000).sort((a, b) => a.created - b.created).slice(-2); return { who: ts.map(t => t.who), now: window.__game().players[window.__game().turn].name, clips: ts.map(t => { const c = window.__ss.clips.find(c => c.id === t.clipId); return [c.start, +(c.len).toFixed(1), +(t.end - t.start).toFixed(1)]; }) }; });
+    check("personages: Marge spreekt verder waar Homer stopte, daarna weer Homer", m.who.join() === "Homer,Marge" && m.now === "Homer" && Math.abs(m.clips[1][0] - h.end) < 0.15, JSON.stringify(m));
+    check("personages: elke clip is precies het stuk van dat personage", m.clips.every(c => Math.abs(c[1] - c[2]) < 0.6), JSON.stringify(m.clips));
+    const before = await S(page, () => window.__ss.takes.length);
+    await page.click("#redoBtn"); await rec(1000); await sleep(600);
+    const r2 = await S(page, () => ({ n: window.__ss.takes.length, last: window.__ss.lastTake.who, now: window.__game().players[window.__game().turn].name }));
+    check("personages: Opnieuw neemt Marge opnieuw op, daarna is Homer weer aan de beurt", r2.n === before && r2.last === "Marge" && r2.now === "Homer", JSON.stringify(r2));
+    await page.screenshot({ path: path.join(OUT, "9-personages.png") });
+    await page.context().close();
+  }
+
+  // ===== Hoofdlink: personagemodus nog verborgen tot Tom hem goedkeurt =====
+  {
+    const { page } = await open(browser, { init: () => { window.SS_FEATURES = { personage: false }; try { localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
+    await page.waitForSelector("#startDlg[open]");
+    check("op de hoofdlink staat de keuze voor personages nog uit (Team wel)", await page.isHidden("#styleWrap") && await page.isVisible("#teamBtn"));
     await page.context().close();
   }
 
