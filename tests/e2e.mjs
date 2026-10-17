@@ -378,7 +378,7 @@ try {
     // bewaarde clips: deze sessie, met een knop die alles achter elkaar afspeelt
     await page.click("#saveClip").catch(() => {}); await sleep(300);
     const lib = await S(page, () => ({ scope: document.querySelector('#libScope button[aria-pressed="true"]')?.dataset.scope, now: sessionStorage.getItem("ss.sessionStart"), label: document.querySelector('#libScope button[aria-pressed="true"]')?.textContent, clips: document.querySelectorAll("#lib .clip").length, btn: document.getElementById("reelBtn").textContent, en: !document.getElementById("reelBtn").disabled }));
-    check("bewaarde clips staan per sessie met datum; de huidige sessie is gekozen", lib.scope === lib.now && /^🗓 Nu · \S+ \d+ \S+ \d\d:\d\d/.test(lib.label) && lib.clips >= 1 && lib.en, JSON.stringify(lib));
+    check("bewaarde clips staan per sessie met datum; de huidige sessie is gekozen", lib.scope === lib.now && /^Sessie 1 \(nu\)\d+ \S+ \d\d:\d\d · 1 clip$/.test(lib.label) && lib.clips >= 1 && lib.en, JSON.stringify(lib));
     await page.click("#reelBtn");
     await page.waitForFunction(() => window.__ss.reel && window.__ss.mode === "playing", null, { timeout: 8000 });
     check("de knop speelt de clips achter elkaar af (opnemen is dan geblokkeerd)", await page.isDisabled("#recBtn") && /Stop/.test(await page.textContent("#reelBtn")));
@@ -393,6 +393,12 @@ try {
     await page.click('#libScope button[data-scope="all"]'); await sleep(200);
     check("met Alle clips zie je ook clips van eerdere sessies", await S(page, () => document.querySelector('#libScope button[data-scope="all"]').getAttribute("aria-pressed") === "true"));
     await page.click('#libScope button[aria-pressed="false"]');
+    // oude opnames zonder sessie: wat kort na elkaar is opgenomen is één sessie, niet per datum
+    const legacy = await S(page, () => { const s = window.__ss, h = 3600e3, base = Date.now() - 30 * h, src = s.clips[0];
+      const fake = [0, 10 * 60e3, 3 * h, 3 * h + 5 * 60e3].map((d, i) => ({ ...src, id: "old" + i, session: undefined, created: base + d }));
+      s.clips.push(...fake); const ss = window.__sessions().map(x => x.key); s.clips = s.clips.filter(c => !fake.includes(c)); window.__renderLib();
+      return { n: ss.length, keys: ss }; });
+    check("oude opnames zonder sessie worden in sessies gegroepeerd (niet per datum)", legacy.n === 3, JSON.stringify(legacy));
 
     // automatisch bijwerken: nieuwe versie op de server -> pagina ververst zichzelf, wacht tot er niet meer gespeeld wordt
     let v = 1;
@@ -475,11 +481,11 @@ try {
     await page.context().close();
   }
 
-  // ===== Hoofdlink: personagemodus nog verborgen tot Tom hem goedkeurt =====
+  // ===== Personagemodus uit te zetten met SS_FEATURES =====
   {
     const { page } = await open(browser, { init: () => { window.SS_FEATURES = { personage: false }; try { localStorage.setItem("ss.helpSeen", "true"); } catch {} } });
     await page.waitForSelector("#startDlg[open]");
-    check("op de hoofdlink staat de keuze voor personages nog uit (Team wel)", await page.isHidden("#styleWrap") && await page.isVisible("#teamBtn"));
+    check("met SS_FEATURES.personage = false is de keuze voor personages weg (Team blijft)", await page.isHidden("#styleWrap") && await page.isVisible("#teamBtn"));
     await page.context().close();
   }
 
