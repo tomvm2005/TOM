@@ -300,7 +300,7 @@ aside{display:grid;gap:16px}
 dialog{border:0;padding:0;background:transparent;max-width:min(560px,calc(100vw - 32px));width:100%;color:var(--fg)}
 dialog::backdrop{background:rgba(13,36,64,.38);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
 dialog[open] .dlg{animation:popin .45s var(--spring) both}
-.dlg{background:rgba(255,255,255,.96);border:1px solid #fff;border-radius:24px;padding:22px;display:grid;gap:14px;box-shadow:var(--shadow-lg);max-height:calc(100vh - 32px);overflow:auto}
+.dlg{background:rgba(255,255,255,.96);border:1px solid #fff;border-radius:24px;padding:22px;display:grid;gap:14px;box-shadow:var(--shadow-lg);max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);overflow:auto}
 .dlg h2{margin:0;font:800 26px var(--f-display);letter-spacing:-.02em}
 .dlg .sub{margin:0;color:var(--muted);font-size:15px}
 .dlg-btns{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
@@ -309,6 +309,8 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 .seg-wrap legend{font-weight:700;font-size:14px;padding:0;margin-bottom:6px}
 .seg{flex-wrap:wrap;width:fit-content}
 .switch{display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer}
+#flowWrap{align-items:flex-start;font-weight:500;font-size:14px;line-height:1.45}
+#flowWrap input{flex:none;margin-top:2px}
 .switch input{width:20px;height:20px;accent-color:var(--btn-a)}
 .howto{margin:0;padding-left:0;list-style:none;display:grid;gap:10px;counter-reset:s}
 .howto li{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:15px;color:var(--muted)}
@@ -337,6 +339,9 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 .screen:fullscreen{width:100%;height:100%;aspect-ratio:auto;border-radius:0;background:#000;box-shadow:none}
 .screen:-webkit-full-screen{width:100%;height:100%;aspect-ratio:auto;border-radius:0;background:#000}
 .screen.fs .progress{opacity:.7}
+.turnpop{position:absolute;left:50%;top:18px;z-index:4;transform:translateX(-50%);padding:10px 22px;border-radius:999px;background:linear-gradient(135deg,var(--btn-a),var(--btn-b));color:#fff;font:800 clamp(18px,3vw,28px) var(--f-display);box-shadow:var(--glow);pointer-events:none;opacity:0;white-space:nowrap}
+.turnpop.go{animation:turnpop 1.8s var(--spring) both}
+@keyframes turnpop{0%{opacity:0;transform:translateX(-50%) scale(.6)}12%{opacity:1;transform:translateX(-50%) scale(1.08)}20%{transform:translateX(-50%) scale(1)}80%{opacity:1}100%{opacity:0}}
 .fsbar{position:absolute;right:14px;bottom:16px;z-index:4;display:flex;align-items:center;gap:10px;padding:4px 4px 4px 14px;border-radius:999px;background:rgba(11,26,46,.45);color:#fff;font:500 13px var(--f-mono);opacity:.35;transition:opacity .3s}
 .fsbar:hover{opacity:1}
 .fsbar button{min-height:0;padding:6px 14px;border-radius:999px;border:0;background:rgba(255,255,255,.2);color:#fff;font:600 13px var(--f-body);box-shadow:none}
@@ -409,6 +414,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         <div class="overlay" id="overlay"></div>
         <span class="tag" id="tag" hidden>● OPNAME</span>
         <span class="remain" id="remain" hidden>1:30</span>
+        <div class="turnpop" id="turnPop" aria-live="polite"></div>
         <div class="fsbar" id="fsBar" hidden><span id="fsInfo"></span><button type="button" id="fsStop">■ Stop</button></div>
         <div class="progress"><i id="prog"></i></div>
       </div>
@@ -503,6 +509,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
     <div class="addp"><input id="startName" placeholder="Naam toevoegen" maxlength="24" aria-label="Naam van speler"><button type="button" id="startAdd" aria-label="Speler toevoegen">+</button></div>
     <button type="button" class="sm team-btn" id="teamBtn" title="Iedereen samen onder één naam, zonder einde">👥 Samen als één Team (vrij spelen)</button>
     <p class="why" id="startWhy" aria-live="polite"></p>
+    <label class="switch" id="flowWrap"><input type="checkbox" id="flowOn" checked> <span><b>De video loopt door:</b> na het stuk van de ene speler neemt de volgende meteen verder op (0:00–0:10, dan 0:10–0:20). Daarna samen terugkijken en punten geven.</span></label>
     <fieldset class="seg-wrap" id="roundWrap"><legend>Hoeveel rondes?</legend><div class="lens seg" id="roundSeg"></div></fieldset>
     <fieldset class="seg-wrap" id="lenWrap"><legend>Hoe lang is een clip?</legend><div class="lens seg" id="lenSeg"></div></fieldset>
     <div class="dlg-btns"><button type="button" class="btn-cue" id="startGo">Start de partij</button></div>

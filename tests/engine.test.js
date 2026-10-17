@@ -366,3 +366,17 @@ test("opnieuw: terug naar de beurt van de vorige take, ook na het einde van de p
   assert.equal(s.done, false); assert.equal(E.current(s).name, "Bram"); assert.equal(s.players[1].pts, 0);
   assert.ok(E.whyNot(s, { type: "rewind", turn: 5, round: 1 }));
 });
+test("doorlopend opnemen: de opname gaat door naar de volgende speler, behalve aan het einde van de video of de partij", () => {
+  let s = E.newState({ players: [{ id: "a", name: "Anna" }, { id: "b", name: "Bram" }], rounds: 1 });
+  assert.equal(s.flow, true, "staat standaard aan");
+  assert.deepEqual(E.handOver(s, 10, 300), { go: true, why: "" });
+  assert.equal(E.handOver(s, 299.8, 300).why, "end");
+  s = E.reduce(s, { type: "pass" }); assert.equal(E.current(s).name, "Bram");
+  assert.equal(E.handOver(s, 20, 300).why, "done", "na Bram is de enige ronde voorbij");
+  // punten achteraf geven de beurt niet nog eens door
+  const t = E.reduce(s, { type: "rate", playerId: "b", score: 3, review: true });
+  assert.equal(t.turn, 1); assert.equal(t.players[1].pts, 3);
+  assert.equal(E.newState({ flow: false }).flow, false);
+  assert.equal(E.restore({ v: 2, players: [{ id: "a", name: "A" }], flow: false }).flow, false);
+  assert.equal(E.restore({ v: 2, players: [{ id: "a", name: "A" }] }).flow, true, "oude opslag: doorlopend");
+});
