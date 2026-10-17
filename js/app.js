@@ -47,8 +47,8 @@ const S = {
   drift:[], playing:null, queue:[], rateTake:null, exporting:null, sound: LS.get(KEYS.sound, true) !== false,
 };
 let G = E.newState(); // spelstatus (spelers, beurt, rondes)
-// De personagemodus staat (nog) alleen op de testlink en lokaal aan; op de hoofdlink pas als Tom hem goedkeurt.
-const PERSONAGE_ON = window.SS_FEATURES?.personage ?? (!/^\/TOM\/?$/i.test(location.pathname) && !/^\/TOM\/index\.html$/i.test(location.pathname));
+// Personagemodus: staat overal aan (Tom koos 17-10 "Nu online"). Uitzetten kan met window.SS_FEATURES = {personage:false}.
+const PERSONAGE_ON = window.SS_FEATURES?.personage ?? true;
 
 // ---------- Opslag (IndexedDB, met geheugen als terugval) ----------
 // put() geeft true als het echt op dit apparaat bewaard is, false als het alleen in het geheugen staat.
@@ -858,25 +858,33 @@ function renderTakes(){
   });
   refreshButtons();
 }
-// Sessies: alles wat in één tabblad is opgenomen hoort bij één sessie, met de datum van opnemen.
-// Oude takes en clips zonder sessie worden per dag gegroepeerd.
-const dayKey = ms => { const d=new Date(ms); return "d"+d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate(); };
-const sessOf = x => x.session!=null ? String(x.session) : dayKey(x.created);
+// Sessies: alles wat in één tabblad is opgenomen hoort bij één sessie (genummerd, met de datum erbij als informatie).
+// Oude takes en clips van vóór de sessies: wat kort na elkaar is opgenomen (minder dan een uur ertussen) is één sessie.
+const LEGACY_GAP = 60*60*1000;
 const NOW_SESS = String(SESSION_START);
+let legacyMap = new Map(), legacyFor = "";
+function legacyKey(x){
+  const sig = S.takes.length+":"+S.clips.length;
+  if (legacyFor!==sig){ // opnieuw indelen als er iets bij komt of weg gaat
+    legacyFor=sig; legacyMap=new Map();
+    const old=[...S.takes, ...S.clips].filter(o=>o.session==null).sort((a,b)=>a.created-b.created);
+    let key=null, last=-Infinity;
+    for (const o of old){ if (o.created-last>LEGACY_GAP) key="o"+o.created; legacyMap.set(o, key); last=o.created; }
+  }
+  return legacyMap.get(x) || "o"+x.created;
+}
+const sessOf = x => x.session!=null ? String(x.session) : legacyKey(x);
 function sessions(){
   const m=new Map();
   const add=(key,at,clipId)=>{ let s=m.get(key); if (!s) m.set(key,s={key, at, clips:new Set(), takes:0}); s.at=Math.min(s.at,at); if (clipId) s.clips.add(clipId); return s; };
   const have=new Set(S.clips.map(c=>c.id));
   for (const t of S.takes) if (have.has(t.clipId)) add(sessOf(t), t.created, t.clipId).takes++;
   for (const c of S.clips) if (!S.takes.some(t=>t.clipId===c.id)) add(sessOf(c), c.created, c.id);
-  return [...m.values()].sort((a,b)=>b.at-a.at);
+  const list=[...m.values()].sort((a,b)=>a.at-b.at); list.forEach((x,i)=>{ x.nr=i+1; }); // nummer op volgorde van opnemen
+  return list.reverse();
 }
-function sessLabel(s){
-  const d=new Date(s.at), today=new Date().toDateString()===d.toDateString();
-  const date=d.toLocaleDateString("nl-NL",{weekday:"short",day:"numeric",month:"short",...(d.getFullYear()!==new Date().getFullYear()?{year:"numeric"}:{})});
-  const time=s.key.startsWith("d") ? "" : " "+d.toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"});
-  return (s.key===NOW_SESS ? "Nu · " : today ? "Vandaag · " : "") + date + time;
-}
+const sessDate = s => { const d=new Date(s.at); return d.toLocaleDateString("nl-NL",{day:"numeric",month:"short",...(d.getFullYear()!==new Date().getFullYear()?{year:"numeric"}:{})})+" "+d.toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"}); };
+const sessLabel = s => `Sessie ${s.nr}${s.key===NOW_SESS?" (nu)":""}`;
 const libScope = () => { const ss=sessions(); if (S.libScope && (S.libScope==="all" || ss.some(x=>x.key===S.libScope))) return S.libScope; return ss[0]?.key || "all"; };
 const scopeTakes = (c, scope) => S.takes.filter(t=>t.clipId===c.id && (scope==="all" || sessOf(t)===scope));
 const inScope = (c, scope) => scope==="all" || scopeTakes(c,scope).length>0 || (sessOf(c)===scope && !S.takes.some(t=>t.clipId===c.id));
@@ -891,9 +899,9 @@ function renderLib(){
   for (const x of [...ss, {key:"all"}]){
     const b=document.createElement("button"); b.type="button"; b.dataset.scope=x.key; const on=x.key===scope; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on);
     const n = x.key==="all" ? S.clips.length : x.clips.size;
-    b.innerHTML=`<span class="sl"></span><span class="n">${n} ${n===1?"clip":"clips"}</span>`;
-    b.querySelector(".sl").textContent = x.key==="all" ? "Alle clips" : "🗓 "+sessLabel(x);
-    b.title = x.key==="all" ? "Alle bewaarde clips" : "Sessie van "+sessLabel(x).replace(/^(Nu|Vandaag) · /,"");
+    b.innerHTML=`<span class="sl"></span><span class="n">${x.key==="all"?"":sessDate(x)+" · "}${n} ${n===1?"clip":"clips"}</span>`;
+    b.querySelector(".sl").textContent = x.key==="all" ? "Alle clips" : sessLabel(x);
+    b.title = x.key==="all" ? "Alle bewaarde clips" : `${sessLabel(x)}, opgenomen op ${sessDate(x)}`;
     b.onclick=()=>{ if (S.reel) return; S.libScope=x.key; renderLib(); };
     b.disabled=!!S.reel; bar.appendChild(b);
   }
@@ -1259,5 +1267,5 @@ window.__checkUpdate=checkUpdate; window.__updBase=()=>UPD.base; window.__updRes
   else if (!LS.get(KEYS.help,false)) openHelp();
   else openStart();
 })();
-window.__ss=S; window.__game=()=>G; // voor de tests
+window.__ss=S; window.__game=()=>G; window.__sessions=()=>sessions(); window.__renderLib=()=>renderLib(); // voor de tests
 })();

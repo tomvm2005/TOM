@@ -29,8 +29,8 @@ Sneltoetsen: spatie opnemen/stoppen, W bekijk clip, P pauze (of laatste take als
 - Een partij die bezig was, gaat na herladen gewoon verder.
 - De opname stopt precies aan het einde van de clip en de microfoon gaat dan meteen uit.
 - Na de punten gaat de volgende speler verder waar de vorige take stopte. Met Opnieuw neem je de laatste take over; de oude verdwijnt pas als de nieuwe bewaard is.
-- Spelvorm Personages (eerst alleen op de testlink): elke naam is een personage; je spreekt in tot het volgende personage in beeld komt en drukt dan op Stop opname.
-- Bewaarde clips staan per sessie (één tabblad) met datum en tijd; oudere opnames zonder sessie per dag. "Speel alle clips achter elkaar" speelt de gekozen sessie op volledig scherm zonder pauzes af.
+- Spelvorm Personages: elke naam is een personage; je spreekt in tot het volgende personage in beeld komt en drukt dan op Stop opname.
+- Bewaarde clips staan per sessie (één tabblad) (Sessie 1, 2, 3, met datum en tijd erbij); oudere opnames zonder sessie worden ingedeeld op basis van tijd ertussen (meer dan een uur = nieuwe sessie). "Speel alle clips achter elkaar" speelt de gekozen sessie op volledig scherm zonder pauzes af.
 
 ## Structuur
 - `index.html`: opmaak en stijl
