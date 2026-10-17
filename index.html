@@ -247,6 +247,7 @@ aside{display:grid;gap:16px}
 .lib{border-radius:22px;padding:20px;display:grid;gap:14px}
 .lib h2{font:800 21px var(--f-display);margin:0;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;letter-spacing:-.02em}
 .libbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;margin:10px 0 14px}
+#libScope{flex-wrap:wrap;max-width:100%}
 .libbar .lens button .n{font:500 11px var(--f-mono);opacity:.7;margin-left:6px}
 #reelBtn[aria-pressed=true]{background:linear-gradient(135deg,var(--rec-a),var(--rec-b))}
 .lib h2 small{font:500 13px var(--f-body);color:var(--muted)}
@@ -331,6 +332,14 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
 /* De video is alleen om naar te kijken: geen klikken op YouTube-knoppen (abonneren, kanaal, enzovoort) */
 /* Een doorzichtig scherm over de video blokkeert alle klikken. Alleen bij YouTube blijft rechtsonder een gat open, zodat je een reclame kan overslaan. */
 .shield{position:absolute;inset:0;z-index:2;background:transparent}
+/* Alle clips achter elkaar: volledig scherm, zonder knoppen in beeld */
+.screen.fs{position:fixed;inset:0;z-index:1000;width:100vw;height:100vh;height:100dvh;max-width:none;aspect-ratio:auto;border-radius:0;background:#000;box-shadow:none;animation:none}
+.screen:fullscreen{width:100%;height:100%;aspect-ratio:auto;border-radius:0;background:#000;box-shadow:none}
+.screen:-webkit-full-screen{width:100%;height:100%;aspect-ratio:auto;border-radius:0;background:#000}
+.screen.fs .progress{opacity:.7}
+.fsbar{position:absolute;right:14px;bottom:16px;z-index:4;display:flex;align-items:center;gap:10px;padding:4px 4px 4px 14px;border-radius:999px;background:rgba(11,26,46,.45);color:#fff;font:500 13px var(--f-mono);opacity:.35;transition:opacity .3s}
+.fsbar:hover{opacity:1}
+.fsbar button{min-height:0;padding:6px 14px;border-radius:999px;border:0;background:rgba(255,255,255,.2);color:#fff;font:600 13px var(--f-body);box-shadow:none}
 .shield.click{cursor:pointer}
 .vctl{position:absolute;left:12px;bottom:14px;z-index:3;display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border-radius:999px;background:rgba(11,26,46,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;font:500 13px var(--f-mono);font-variant-numeric:tabular-nums;animation:drop .4s var(--spring) both}
 .vctl button{width:32px;height:32px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:14px;line-height:1;display:grid;place-items:center;box-shadow:none;transform:none}
@@ -400,6 +409,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
         <div class="overlay" id="overlay"></div>
         <span class="tag" id="tag" hidden>● OPNAME</span>
         <span class="remain" id="remain" hidden>1:30</span>
+        <div class="fsbar" id="fsBar" hidden><span id="fsInfo"></span><button type="button" id="fsStop">■ Stop</button></div>
         <div class="progress"><i id="prog"></i></div>
       </div>
 
@@ -475,7 +485,7 @@ dialog[open] .dlg{animation:popin .45s var(--spring) both}
   <section class="lib">
     <h2>Bewaarde clips <small id="libSub">Clips en takes blijven op deze computer bewaard.</small></h2>
     <div class="libbar" id="libbar">
-      <div class="lens seg" id="libScope" role="group" aria-label="Welke clips"><button type="button" data-scope="sess">Deze sessie</button><button type="button" data-scope="all">Alle bewaarde clips</button></div>
+      <div class="lens seg" id="libScope" role="group" aria-label="Sessies"></div>
       <button type="button" class="btn-cue" id="reelBtn" disabled>▶ Speel alle clips achter elkaar</button>
     </div>
     <div class="grid" id="lib"></div>

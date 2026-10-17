@@ -24,6 +24,7 @@ const TIMING = {
   updateRetry: 4000,    // ms wachten als een nieuwe versie klaarstaat maar er nog gespeeld of opgenomen wordt
   updateMinGap: 90000,  // ms minimaal tussen twee automatische verversingen (voorkomt een lus)
   updateReload: 1500,   // ms dat "nieuwe versie" in beeld blijft voor de pagina ververst
+  seamless: 0.3,        // s: zo dicht bij de goede plek hoeft de video niet te springen (alle clips achter elkaar)
 };
 const KEYS = { len: "ss.len", game: "ss.players", sound: "ss.sound", help: "ss.helpSeen", watchVol: "ss.watchVol", recVol: "ss.recVol2", voiceVol: "ss.voiceVol", captions: "ss.captions" };
 const FACES = [["🥱","1"],["🙂","2"],["😄","3"],["😂","4"],["🤣","5"]];
@@ -359,7 +360,7 @@ function setClipStart(s, clipId=null, exact=false){
   S.clipStart = exact || clipId || personage() ? E.exactStart(s, dur()) : E.clampStart(s, CLIP, dur());
   S.clipId = clipId || (personage() ? null : E.findClip(S.clips, S.srcKey, S.clipStart)?.id) || null;
   renderTrack(); renderTakes(); renderLib(); refreshButtons();
-  if (S.src && S.mode==="idle") S.src.seek(S.clipStart);
+  if (S.src && S.mode==="idle" && Math.abs(S.src.time()-S.clipStart)>TIMING.seamless) S.src.seek(S.clipStart); // al op die plek: niet springen (doorlopend afspelen)
 }
 function newClip(announce=true){
   if (personage()){ setClipStart(0,null,true); if (announce) toast("Terug naar het begin van de video."); return; }
@@ -531,7 +532,7 @@ async function saveTake(){
   const clip = await ensureClip(true);
   const p=G.players.find(x=>x.id===S.recPlayerId) || E.current(G);
   const take={ id:"t"+Date.now(), owner:OWNER, clipId:clip.id, who:p.name, playerId:p.id, blob, offset:S.offset, start:S.recStart,
-    end:Math.max(S.recEnd,S.recStart+.5), challenge:S.challenge, score:null, created:Date.now() };
+    end:Math.max(S.recEnd,S.recStart+.5), challenge:S.challenge, score:null, created:Date.now(), session:SESSION_START };
   S.takes.push(take);
   const saved = await save("takes",take);
   if (saved && navigator.storage?.persist) navigator.storage.persist().catch(()=>{}); // vraag de browser de takes niet zomaar op te ruimen
@@ -590,7 +591,7 @@ function redoTake(){
 async function ensureClip(played){
   let c = S.clips.find(x=>x.id===S.clipId) || (personage() ? null : E.findClip(S.clips, S.srcKey, S.clipStart));
   if (!c){
-    c={ id:"c"+Date.now(), owner:OWNER, srcKey:S.srcKey, info:storableInfo(), title:S.src.title(), start:S.clipStart, len:clipEnd()-S.clipStart, played:false, created:Date.now(), thumb:S.src.thumb||grabThumb() };
+    c={ id:"c"+Date.now(), owner:OWNER, srcKey:S.srcKey, info:storableInfo(), title:S.src.title(), start:S.clipStart, len:clipEnd()-S.clipStart, played:false, created:Date.now(), session:SESSION_START, thumb:S.src.thumb||grabThumb() };
     S.clips.push(c);
   }
   if (played && !c.played){ c.played=true; c.playedAt=Date.now(); }
@@ -622,7 +623,9 @@ async function playTake(take,{rate=false,queue=null}={}){
   S.playing=take; take.rateAfter=rate; S.queue=queue||[]; S.mode="playing"; S.drift=[];
   S.voiceGain.gain.value=+$("voiceVol").value/100;
   S.src.setVolume(0); /* terugkijken en exporteren: alleen jouw stem, nooit het geluid van de originele video */
-  S.src.seek(take.start); S.src.play();
+  const running = S.vstate==="playing" && !S.src.el?.paused;
+  if (Math.abs(S.src.time()-take.start)>TIMING.seamless || !running) S.src.seek(take.start);
+  S.src.play(); if (running) startVoice(); // speelt de video al door (alle clips achter elkaar): de stem meteen erbij
   refreshButtons(); renderTakes();
 }
 function startVoice(){
@@ -644,12 +647,14 @@ function checkSync(){
 }
 function finishPlayback(natural){
   if (S.mode!=="playing") return;
-  const t=S.playing; stopVoice(); S.src.pause(); S.mode="idle"; S.playing=null; restoreVolume();
+  const t=S.playing, flow = natural && S.reel && !S.reel.stop; // alle clips achter elkaar: het beeld loopt gewoon door
+  stopVoice(); if (!flow){ S.src.pause(); restoreVolume(); } S.mode="idle"; S.playing=null;
   if (S.exporting) endExport(natural);
   refreshButtons(); renderTakes();
-  if (natural && S.queue.length){ const next=S.queue.shift(); const q=S.queue; setTimeout(()=>playTake(next,{queue:q}),TIMING.nextTakeGap); return; }
+  if (natural && S.queue.length){ const next=S.queue.shift(); const q=S.queue; setTimeout(()=>playTake(next,{queue:q}), flow?0:TIMING.nextTakeGap); return; }
   S.queue=[];
   if (S.playDone){ const d=S.playDone; S.playDone=null; d(natural); } // de volgorde van clips wacht hierop
+  if (flow) return;
   if (natural && t?.rateAfter) openRate(t);
   if (S.src) S.src.seek(S.clipStart);
 }
@@ -853,27 +858,53 @@ function renderTakes(){
   });
   refreshButtons();
 }
-// Welke takes horen bij deze sessie, en welke clips (met takes) horen erbij.
-const sessTakes = c => S.takes.filter(t=>t.clipId===c.id && t.created>=SESSION_START);
-const inSession = c => c.created>=SESSION_START || sessTakes(c).length>0;
-const libScope = () => S.libScope || (S.clips.some(inSession) ? "sess" : "all");
+// Sessies: alles wat in één tabblad is opgenomen hoort bij één sessie, met de datum van opnemen.
+// Oude takes en clips zonder sessie worden per dag gegroepeerd.
+const dayKey = ms => { const d=new Date(ms); return "d"+d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate(); };
+const sessOf = x => x.session!=null ? String(x.session) : dayKey(x.created);
+const NOW_SESS = String(SESSION_START);
+function sessions(){
+  const m=new Map();
+  const add=(key,at,clipId)=>{ let s=m.get(key); if (!s) m.set(key,s={key, at, clips:new Set(), takes:0}); s.at=Math.min(s.at,at); if (clipId) s.clips.add(clipId); return s; };
+  const have=new Set(S.clips.map(c=>c.id));
+  for (const t of S.takes) if (have.has(t.clipId)) add(sessOf(t), t.created, t.clipId).takes++;
+  for (const c of S.clips) if (!S.takes.some(t=>t.clipId===c.id)) add(sessOf(c), c.created, c.id);
+  return [...m.values()].sort((a,b)=>b.at-a.at);
+}
+function sessLabel(s){
+  const d=new Date(s.at), today=new Date().toDateString()===d.toDateString();
+  const date=d.toLocaleDateString("nl-NL",{weekday:"short",day:"numeric",month:"short",...(d.getFullYear()!==new Date().getFullYear()?{year:"numeric"}:{})});
+  const time=s.key.startsWith("d") ? "" : " "+d.toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"});
+  return (s.key===NOW_SESS ? "Nu · " : today ? "Vandaag · " : "") + date + time;
+}
+const libScope = () => { const ss=sessions(); if (S.libScope && (S.libScope==="all" || ss.some(x=>x.key===S.libScope))) return S.libScope; return ss[0]?.key || "all"; };
+const scopeTakes = (c, scope) => S.takes.filter(t=>t.clipId===c.id && (scope==="all" || sessOf(t)===scope));
+const inScope = (c, scope) => scope==="all" || scopeTakes(c,scope).length>0 || (sessOf(c)===scope && !S.takes.some(t=>t.clipId===c.id));
 function reelItems(){
-  const sess=libScope()==="sess";
-  return S.clips.map(c=>({clip:c, takes:(sess?sessTakes(c):S.takes.filter(t=>t.clipId===c.id)).sort((a,b)=>a.created-b.created)}))
-    .filter(x=>x.takes.length && (!sess || inSession(x.clip))).sort((a,b)=>a.takes[0].created-b.takes[0].created);
+  const scope=libScope();
+  return S.clips.map(c=>({clip:c, takes:scopeTakes(c,scope).sort((a,b)=>a.created-b.created)}))
+    .filter(x=>x.takes.length).sort((a,b)=>a.takes[0].created-b.takes[0].created);
 }
 function renderLib(){
-  const box=$("lib"), scope=libScope(), nS=S.clips.filter(inSession).length;
-  const cl=S.clips.filter(c=>scope==="all"||inSession(c)).sort((a,b)=>(b.playedAt||b.created)-(a.playedAt||a.created));
-  document.querySelectorAll("#libScope button").forEach(b=>{ const on=b.dataset.scope===scope; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on);
-    b.innerHTML=(b.dataset.scope==="sess"?"Deze sessie":"Alle bewaarde clips")+`<span class="n">${b.dataset.scope==="sess"?nS:S.clips.length}</span>`; });
+  const box=$("lib"), scope=libScope(), ss=sessions(), bar=$("libScope");
+  bar.innerHTML="";
+  for (const x of [...ss, {key:"all"}]){
+    const b=document.createElement("button"); b.type="button"; b.dataset.scope=x.key; const on=x.key===scope; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on);
+    const n = x.key==="all" ? S.clips.length : x.clips.size;
+    b.innerHTML=`<span class="sl"></span><span class="n">${n} ${n===1?"clip":"clips"}</span>`;
+    b.querySelector(".sl").textContent = x.key==="all" ? "Alle clips" : "🗓 "+sessLabel(x);
+    b.title = x.key==="all" ? "Alle bewaarde clips" : "Sessie van "+sessLabel(x).replace(/^(Nu|Vandaag) · /,"");
+    b.onclick=()=>{ if (S.reel) return; S.libScope=x.key; renderLib(); };
+    b.disabled=!!S.reel; bar.appendChild(b);
+  }
+  const cl=S.clips.filter(c=>inScope(c,scope)).sort((a,b)=>{ const fa=scopeTakes(a,scope)[0]?.created??a.created, fb=scopeTakes(b,scope)[0]?.created??b.created; return scope==="all" ? (b.playedAt||b.created)-(a.playedAt||a.created) : fa-fb; });
   renderReelBtn();
-  if (!cl.length){ box.innerHTML=scope==="sess"?'<p class="none-yet">In deze sessie is nog niets opgenomen. Elke clip waarop je inspreekt komt hier te staan, met al zijn takes. Oudere clips zie je onder Alle bewaarde clips.</p>':'<p class="none-yet">Nog niets bewaard. Elke clip waarop je inspreekt komt hier te staan, met al zijn takes.</p>'; return; }
+  if (!cl.length){ box.innerHTML='<p class="none-yet">Nog niets bewaard. Elke clip waarop je inspreekt komt hier te staan, met al zijn takes, bij de sessie en de datum van opnemen.</p>'; return; }
   box.innerHTML="";
   for (const c of cl){
-    const n=(scope==="sess"?sessTakes(c):S.takes.filter(t=>t.clipId===c.id)).length;
+    const tk=scopeTakes(c,scope), n=tk.length, when=tk.length?Math.min(...tk.map(t=>t.created)):(c.playedAt||c.created);
     const b=document.createElement("button"); b.type="button"; b.className="clip"+(c.id===S.clipId&&S.srcKey===c.srcKey?" cur":"");
-    b.innerHTML=`<div class="th">${c.played?'<span class="badge">GESPEELD</span>':""}<span class="len">${fmtS(c.start)}–${fmtS(c.start+c.len)}</span></div><div class="bd"><span class="nm"></span><span class="sub">${n} ${n===1?"take":"takes"}${c.playedAt?" · "+new Date(c.playedAt).toLocaleDateString("nl-NL",{day:"numeric",month:"short"}):""}</span></div>`;
+    b.innerHTML=`<div class="th">${c.played?'<span class="badge">GESPEELD</span>':""}<span class="len">${fmtS(c.start)}–${fmtS(c.start+c.len)}</span></div><div class="bd"><span class="nm"></span><span class="sub">${n} ${n===1?"take":"takes"} · ${new Date(when).toLocaleDateString("nl-NL",{day:"numeric",month:"short"})} ${new Date(when).toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"})}</span></div>`;
     if (c.thumb) b.querySelector(".th").style.backgroundImage=`url("${c.thumb}")`;
     b.querySelector(".nm").textContent=c.title||"Clip";
     b.disabled=BUSY.has(S.mode)||!!S.reel;
@@ -894,7 +925,9 @@ async function playReel(){
   if (S.mode!=="idle" || S.exporting) return;
   const items=reelItems(); if (!items.length) return toast("Er zijn nog geen clips met takes om af te spelen.");
   hideErr(); closeRate(); audioCtx();
+  enterFs(); // meteen bij de klik: browsers staan volledig scherm alleen toe direct na een klik
   S.reel={items, i:0, stop:false}; refreshButtons(); sfx("tick");
+  try { await Promise.all(items.flatMap(x=>x.takes).map(t=>decoded(t).catch(()=>{}))); } catch {} // alles vooraf klaarzetten: geen haperingen tussen de clips
   let played=0;
   for (let i=0;i<items.length && S.reel && !S.reel.stop;i++){
     S.reel.i=i; refreshButtons();
@@ -908,21 +941,32 @@ async function playReel(){
     if (S.mode!=="playing"){ S.playDone=null; continue; } // afspelen lukte niet
     const natural=await done;
     if (!natural) break;
-    played++;
-    await wait(TIMING.nextTakeGap);
+    played++; // geen pauze tussen de clips: het beeld loopt meteen door naar de volgende
   }
   const stopped=!S.reel || S.reel.stop;
-  S.reel=null; S.playDone=null; refreshButtons(); renderLib();
+  S.reel=null; S.playDone=null;
+  if (S.src && S.mode==="idle"){ S.src.pause(); restoreVolume(); S.src.seek(S.clipStart); }
+  exitFs(); refreshButtons(); renderLib();
   toast(stopped ? "Afspelen gestopt." : `Klaar: ${played} ${played===1?"clip":"clips"} afgespeeld.`);
   if (!stopped) sfx("done");
 }
+// Volledig scherm tijdens alle clips achter elkaar. Kan de browser dat niet (bijvoorbeeld iPhone), dan vult het beeld het venster.
+function enterFs(){
+  const el=$("screen"); el.classList.add("fs");
+  try { const f=el.requestFullscreen||el.webkitRequestFullscreen; if (f) { const p=f.call(el); p?.catch?.(()=>{}); } } catch {}
+}
+function exitFs(){
+  $("screen").classList.remove("fs");
+  try { if (document.fullscreenElement||document.webkitFullscreenElement) (document.exitFullscreen||document.webkitExitFullscreen).call(document)?.catch?.(()=>{}); } catch {}
+}
+document.addEventListener("fullscreenchange",()=>{ if (!document.fullscreenElement && S.reel) $("screen").classList.remove("fs"); }); // zelf uit volledig scherm: gewoon verder in het venster
+$("fsStop").onclick=e=>{ e.stopPropagation(); stopEverything(); };
 function stopReel(){ if (!S.reel) return; S.reel.stop=true; if (S.mode==="playing") finishPlayback(false); else if (S.playDone){ const d=S.playDone; S.playDone=null; d(false); } refreshButtons(); }
 $("reelBtn").onclick=playReel;
-document.querySelectorAll("#libScope button").forEach(b=>b.onclick=()=>{ if (S.reel) return; S.libScope=b.dataset.scope; renderLib(); });
 async function openClip(c){
   if (S.mode!=="idle") return;
   if (c.len && c.len!==CLIP && R.clipLengths.includes(Math.round(c.len))) setClipLen(Math.round(c.len), true);
-  if (c.srcKey===S.srcKey && S.src){ setClipStart(c.start,c.id); window.scrollTo({top:0,behavior:reduceMotion()?"auto":"smooth"}); return; }
+  if (c.srcKey===S.srcKey && S.src){ setClipStart(c.start,c.id); if (!S.reel) window.scrollTo({top:0,behavior:reduceMotion()?"auto":"smooth"}); return; }
   let info=c.info;
   if (info.kind==="file"){ const f=await DB.get("files",info.fileKey); if (!f) return showErr("Het videobestand van deze clip is niet meer bewaard. Upload de video opnieuw."); info={kind:"file",blob:f.blob,name:f.name}; }
   window.scrollTo({top:0,behavior:reduceMotion()?"auto":"smooth"});
@@ -985,7 +1029,8 @@ function refreshButtons(){
   $("acctBtn").disabled=busy; $("pname").disabled=busy; $("newGameBtn").disabled=rec||m==="arming"; $("endGameBtn").disabled=rec||m==="arming";
   $("lamp").classList.toggle("on",m==="recording"&&!S.paused);
   $("screen").classList.toggle("rec",rec); $("screen").classList.toggle("play",m==="playing"||m==="preview");
-  $("tag").hidden=!(m==="recording"||m==="playing"||m==="preview");
+  $("tag").hidden=!(m==="recording"||m==="playing"||m==="preview")||!!S.reel;
+  $("fsBar").hidden=!S.reel;
   $("tag").textContent=S.paused?"⏸ PAUZE":S.exporting?"⏺ VIDEO MAKEN":m==="playing"?"▶ TERUGKIJKEN":m==="preview"?"👀 VOORBEELD":"● OPNAME";
   $("tag").classList.toggle("play",m!=="recording"); $("tag").classList.toggle("pause",S.paused);
   $("remain").hidden=!(rec||m==="playing"||m==="preview");
@@ -1044,7 +1089,7 @@ function screenClick(){
   if (!S.src || S.exporting) return;
   const m=S.mode;
   if (m==="recording"||m==="preview"||m==="playing"){ togglePause(); flash(S.paused?"pause":"play"); return; }
-  if (m!=="idle") return;
+  if (m!=="idle" || S.reel) return;
   startPreview(true); flash("play"); // afspelen = de clip bekijken: hij stopt aan het eind van de clip en begint daarna weer vooraan
 }
 function flash(icon){ const f=$("flash"); f.innerHTML=ICON[icon]; f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
@@ -1108,7 +1153,8 @@ const ICON={ play:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="
 const setText=(id,t)=>{ const el=$(id); if (el.textContent!==t) el.textContent=t; };
 function drawClock(){ requestAnimationFrame(drawClock); paintClock(); }
 function paintClock(){
-  $("vctl").hidden=!S.src; if (!S.src) return;
+  $("vctl").hidden=!S.src||!!S.reel; if (!S.src) return; // alle clips achter elkaar: geen pauzeknop in beeld
+  if (S.reel) setText("fsInfo",`▶ Clip ${S.reel.i+1} van ${S.reel.items.length}`);
   const now=S.scrub??S.src.time(), d=dur(), {rel,len}=clipPos(now), pct=(rel/len*100).toFixed(2)+"%", m=S.mode;
   setText("tc",fmt(rel)+" / "+fmtS(len));
   setText("remain",fmtS(Math.ceil(len-rel-.001)));
@@ -1164,7 +1210,7 @@ async function serverVersion(cache="no-store"){
   const parts = await Promise.all(updUrls().map(async u=>{ const r=await fetch(u,{cache}); if (!r.ok) throw new Error("http "+r.status); return hashText(await r.text()); }));
   return parts.join("|");
 }
-const updateIdle = () => !BUSY.has(S.mode) && !S.exporting && !S.rateTake && !$("authDlg").open;
+const updateIdle = () => !BUSY.has(S.mode) && !S.reel && !S.exporting && !S.rateTake && !$("authDlg").open;
 async function checkUpdate(){
   if (location.protocol==="file:" || UPD.busy) return false;
   UPD.busy=true;
